@@ -73,6 +73,7 @@ targets:
     info:
       path: PerfectNapWidget/Info.plist
       properties:
+        CFBundleDisplayName: Perfect Nap
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
