@@ -1,0 +1,85 @@
+name: PerfectNap
+options:
+  bundleIdPrefix: com.marcushyett.perfectnap
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+    # Skip code signing on simulator builds so the project runs without a team.
+    # Set a team in Xcode → target → Signing & Capabilities before running on a real device.
+    "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": ""
+    "CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]": "NO"
+    "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": "NO"
+
+targets:
+  PerfectNap:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: PerfectNap
+        excludes:
+          - "Info.plist"
+      - path: Shared
+    resources:
+      - PerfectNap/Assets.xcassets
+    info:
+      path: PerfectNap/Info.plist
+      properties:
+        CFBundleDisplayName: Perfect Nap
+        UILaunchScreen: {}
+        NSSupportsLiveActivities: YES
+        NSSupportsLiveActivitiesFrequentUpdates: YES
+        UIBackgroundModes:
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.marcushyett.perfectnap.refresh
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcushyett.perfectnap
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: PerfectNap/PerfectNap.entitlements
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
+    dependencies:
+      - target: PerfectNapWidget
+        embed: true
+
+  PerfectNapWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: PerfectNapWidget
+        excludes:
+          - "Info.plist"
+      - path: Shared
+    info:
+      path: PerfectNapWidget/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcushyett.perfectnap.Widget
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: PerfectNapWidget/PerfectNapWidget.entitlements

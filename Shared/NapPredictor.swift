@@ -1,0 +1,226 @@
+import Foundation
+
+struct NapPrediction {
+    let recommendedStart: Date
+    let earliestStart: Date
+    let latestStart: Date
+    let usedWindowMinutes: Int
+    let baselineMinutes: Int
+    let position: WindowPosition
+    let rationale: String
+    let basedOnNapEnd: Date
+
+    var isOverdue: Bool { recommendedStart <= .now }
+}
+
+enum WindowPosition {
+    case firstOfDay
+    case middleOfDay
+    case beforeBedtime
+
+    var label: String {
+        switch self {
+        case .firstOfDay: return "first nap"
+        case .middleOfDay: return "midday"
+        case .beforeBedtime: return "pre-bedtime"
+        }
+    }
+}
+
+/// Predicts the optimal start time for the next nap given:
+///  - baby's age (selects clinical wake window),
+///  - last nap end time + duration (recent rest reduces sleep pressure),
+///  - position in the day (first wake window is shorter; pre-bedtime is longer),
+///  - per-baby adaptation factor learned from history.
+struct NapPredictor {
+    let baby: Baby
+    let now: Date
+    let calendar: Calendar
+
+    init(baby: Baby, now: Date = .now, calendar: Calendar = .current) {
+        self.baby = baby
+        self.now = now
+        self.calendar = calendar
+    }
+
+    /// Predict next nap start using the most recent completed sleep session and today's naps.
+    /// `lastNightTotalSeconds` is the sum of all overnight sleep segments preceding this morning's
+    /// wake-up; when the prediction is for the first wake window of the day, a short night shrinks
+    /// it and a long night stretches it slightly. Pass nil if not known.
+    func predict(
+        lastSleep: NapSession?,
+        napsToday: [NapSession],
+        lastNightTotalSeconds: TimeInterval? = nil
+    ) -> NapPrediction? {
+        guard let last = lastSleep, let endedAt = last.endedAt else { return nil }
+
+        let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let position = currentPosition(
+            lastSleep: last,
+            napsToday: napsToday,
+            profile: profile
+        )
+
+        let baselineMinutes = profile.window.typicalMinutes
+        let positionFactor = position.factor(profile: profile)
+        let napQualityFactor = napQualityAdjustment(lastSleep: last, profile: profile)
+        let nightFactor = nightQualityAdjustment(
+            position: position,
+            profile: profile,
+            lastNightTotalSeconds: lastNightTotalSeconds
+        )
+        let adaptation = clampedAdaptation(baby.adaptationFactor)
+
+        let combined = positionFactor * napQualityFactor * nightFactor * adaptation
+
+        let adjustedMinutes = Double(baselineMinutes) * combined
+        let recommended = endedAt.addingTimeInterval(adjustedMinutes * 60)
+        let lowRange = Double(profile.window.lowMinutes) * combined
+        let highRange = Double(profile.window.highMinutes) * combined
+        let earliest = endedAt.addingTimeInterval(lowRange * 60)
+        let latest = endedAt.addingTimeInterval(highRange * 60)
+
+        let rationale = buildRationale(
+            profile: profile,
+            position: position,
+            positionFactor: positionFactor,
+            napQualityFactor: napQualityFactor,
+            nightFactor: nightFactor,
+            adaptation: adaptation,
+            baseline: baselineMinutes,
+            adjusted: Int(adjustedMinutes.rounded()),
+            lastNightTotalSeconds: lastNightTotalSeconds
+        )
+
+        return NapPrediction(
+            recommendedStart: recommended,
+            earliestStart: earliest,
+            latestStart: latest,
+            usedWindowMinutes: Int(adjustedMinutes.rounded()),
+            baselineMinutes: baselineMinutes,
+            position: position,
+            rationale: rationale,
+            basedOnNapEnd: endedAt
+        )
+    }
+
+    /// Only applies to the first wake window of the day. Compares last-night total sleep to the
+    /// age-expected band; short night → shorter first WW, long night → slight stretch.
+    /// Mid-day and pre-bedtime windows are unaffected (sleep pressure has already discharged).
+    private func nightQualityAdjustment(
+        position: WindowPosition,
+        profile: AgeProfile,
+        lastNightTotalSeconds: TimeInterval?
+    ) -> Double {
+        guard position == .firstOfDay, let seconds = lastNightTotalSeconds, seconds > 0 else { return 1.0 }
+        let nightHours = seconds / 3600.0
+        let lower = profile.totalNightSleepHours.lowerBound
+        let upper = profile.totalNightSleepHours.upperBound
+        let deficit = lower - nightHours
+        let surplus = nightHours - upper
+        if deficit >= 2.0 { return 0.80 }
+        if deficit >= 1.0 { return 0.88 }
+        if deficit > 0.25 { return 0.93 }
+        if surplus >= 0.5 { return 1.05 }
+        return 1.0
+    }
+
+    private func currentPosition(
+        lastSleep: NapSession,
+        napsToday: [NapSession],
+        profile: AgeProfile
+    ) -> WindowPosition {
+        if lastSleep.kind == .night { return .firstOfDay }
+        let napCount = napsToday.filter { $0.kind == .nap && $0.endedAt != nil }.count
+        let expectedMaxNaps = profile.napsPerDay.upperBound
+        if napCount >= max(expectedMaxNaps - 1, 1) { return .beforeBedtime }
+        return .middleOfDay
+    }
+
+    /// A short nap releases less Process-S sleep pressure → shorter next window. A long nap allows
+    /// the next window to stretch. Bands match consensus from Karp / Taking Cara Babies / Huckleberry:
+    ///  - nap < 30 min: subtract ~30–45 min (≈ 0.75×)
+    ///  - nap 30–45 min: subtract ~20–30 min (≈ 0.85×)
+    ///  - nap 45–90 min: use age midpoint (1.00×)
+    ///  - nap > 90 min: add ~15–30 min (≈ 1.10×)
+    private func napQualityAdjustment(lastSleep: NapSession, profile: AgeProfile) -> Double {
+        guard lastSleep.kind == .nap else { return 1.0 }
+        let minutes = Double(lastSleep.durationMinutes)
+        if minutes < 30 { return 0.75 }
+        if minutes < 45 { return 0.85 }
+        if minutes > 90 { return 1.10 }
+        return 1.0
+    }
+
+    private func clampedAdaptation(_ factor: Double) -> Double {
+        min(max(factor, 0.75), 1.25)
+    }
+
+    private func buildRationale(
+        profile: AgeProfile,
+        position: WindowPosition,
+        positionFactor: Double,
+        napQualityFactor: Double,
+        nightFactor: Double,
+        adaptation: Double,
+        baseline: Int,
+        adjusted: Int,
+        lastNightTotalSeconds: TimeInterval?
+    ) -> String {
+        var parts: [String] = []
+        parts.append("Baseline for \(profile.label): ~\(baseline) min awake.")
+        if abs(positionFactor - 1.0) > 0.01 {
+            let explanation = positionExplanation(profile: profile, position: position, factor: positionFactor)
+            parts.append("\(explanation) (×\(String(format: "%.2f", positionFactor))).")
+        }
+        if napQualityFactor < 1.0 {
+            parts.append("Last nap was short → next window shortened (×\(String(format: "%.2f", napQualityFactor))).")
+        } else if napQualityFactor > 1.0 {
+            parts.append("Last nap was long → next window stretched (×\(String(format: "%.2f", napQualityFactor))).")
+        }
+        if abs(nightFactor - 1.0) > 0.01, let seconds = lastNightTotalSeconds {
+            let hours = seconds / 3600.0
+            if nightFactor < 1.0 {
+                parts.append("Last night was short (\(String(format: "%.1f", hours))h) → morning window shortened (×\(String(format: "%.2f", nightFactor))).")
+            } else {
+                parts.append("Last night was long (\(String(format: "%.1f", hours))h) → morning window stretched (×\(String(format: "%.2f", nightFactor))).")
+            }
+        }
+        if abs(adaptation - 1.0) > 0.02 {
+            let direction = adaptation > 1.0 ? "longer" : "shorter"
+            parts.append("Personalised: this baby tends toward \(direction) windows (×\(String(format: "%.2f", adaptation))).")
+        }
+        parts.append("Recommended: ~\(adjusted) min after last wake.")
+        return parts.joined(separator: " ")
+    }
+
+    private func positionExplanation(profile: AgeProfile, position: WindowPosition, factor: Double) -> String {
+        switch position {
+        case .firstOfDay:
+            if profile.isSingleNapStage {
+                return factor > 1.0 ? "Morning stretch is the longest of the day" : "Morning stretch is calibrated"
+            }
+            return "First wake window is typically the shortest of the day"
+        case .middleOfDay:
+            return "Mid-day window"
+        case .beforeBedtime:
+            if factor < 1.0 {
+                return "Newborn witching-hour: last window shortens, not lengthens"
+            }
+            if profile.isSingleNapStage {
+                return "Afternoon stretch to bedtime is shorter than the morning"
+            }
+            return "Pre-bedtime window is typically the longest of the day"
+        }
+    }
+}
+
+private extension WindowPosition {
+    func factor(profile: AgeProfile) -> Double {
+        switch self {
+        case .firstOfDay: return profile.firstWindowFactor
+        case .middleOfDay: return 1.0
+        case .beforeBedtime: return profile.preBedtimeFactor
+        }
+    }
+}

@@ -1,0 +1,12 @@
+.DS_Store
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.swp
+DerivedData/
+PerfectNap.xcodeproj/
+build/
+*.ipa
+*.dSYM.zip
+.playwright-mcp/
+apple-signin.png
