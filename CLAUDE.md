@@ -4,17 +4,15 @@ iOS baby nap-timing app. SwiftUI + Core Data (NSPersistentCloudKitContainer) + W
 
 ## Per-feature workflow (REQUIRED for every new feature or fix)
 
-Do all of these before considering a feature done:
+No PRs. Do all of these before considering a feature done:
 
 1. **Build it** for the simulator and fix every build error/warning you introduced.
 2. **Test it in the simulator** — actually launch the app and exercise the feature (golden path + the obvious edge cases). Don't claim it works from a successful compile alone.
-3. **Capture screenshots** of the feature in the simulator (use `xcrun simctl io booted screenshot <file>.png`). Include both light and dark mode where there's any UI.
-4. **Regression-test** — run the unit-test suite (`xcodebuild ... test`) and manually re-check the features the change could plausibly affect (start/stop nap, prediction display, Live Activity, history, multi-baby switching, sharing).
-5. **Open a PR** with `gh pr create`. The PR body must include:
-   - A summary of what changed and why.
-   - The **screenshots** from step 3 (drag-drop or `![](url)` after uploading; at minimum attach the files / reference their paths).
-   - A **regression-test checklist** — what you tested and the result.
-6. Only after the PR is up (and the user is happy) ship to TestFlight.
+3. **Capture and share proof with the user, in the chat** (via `SendUserFile`) — screenshots (`xcrun simctl io booted screenshot <file>.png`) and, where motion matters, a short screen recording (`xcrun simctl io booted recordVideo <file>.mp4`, stop with Ctrl-C). Show light and dark mode where there's any UI. Treat it like a quick demo of what changed.
+4. **Regression-test** — run the unit-test suite (`xcodebuild ... test`) and manually re-check the features the change could plausibly affect (start/stop nap, prediction display, Live Activity, history, multi-baby switching, sharing). Tell the user what you checked.
+5. Ship to TestFlight once the user's happy.
+
+If you genuinely can't exercise a UI path in the simulator (e.g. no tap automation), say so explicitly rather than implying it was tested.
 
 ## Shipping to TestFlight (manual signing — Xcode session-logout workaround)
 
