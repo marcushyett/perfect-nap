@@ -23,10 +23,17 @@ struct AdaptiveModel {
         guard endingNap.durationMinutes >= 25 else { return (baby.adaptationFactor, baby.adaptationConfidence) }
         guard let prevEnd = previousSleepEnd else { return (baby.adaptationFactor, baby.adaptationConfidence) }
 
-        let awakeBefore = endingNap.startedAt.timeIntervalSince(prevEnd) / 60.0
+        let awakeBefore = endingNap.start.timeIntervalSince(prevEnd) / 60.0
         guard awakeBefore > 10 else { return (baby.adaptationFactor, baby.adaptationConfidence) }
 
         let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+
+        // Don't learn from an implausibly long wake window — it almost always means a nap was
+        // forgotten, not that this baby genuinely tolerates a huge window. Letting it through would
+        // wrongly stretch the learned factor.
+        let maxPlausibleWW = Double(profile.window.highMinutes) * SkippedNapDetector.implausibilityFactor
+        guard awakeBefore <= maxPlausibleWW else { return (baby.adaptationFactor, baby.adaptationConfidence) }
+
         let napCount = napsToday.filter { $0.kind == .nap }.count
         let positionFactor: Double
         if previousWasNightSleep(previousSleepEnd: prevEnd, endingNap: endingNap) {

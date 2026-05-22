@@ -1,148 +1,126 @@
 import Foundation
-import SwiftData
+import CoreData
 
 extension Notification.Name {
-    /// Posted whenever SleepActions mutates state from outside the SleepStore (i.e. App Intents).
-    /// The store listens and immediately refreshes so the UI stays in sync.
+    /// Posted whenever SleepActions mutates state from outside the SleepStore (App Intents).
     static let perfectNapStateChanged = Notification.Name("app.perfectnap.stateChanged")
 }
 
-/// Headless start/stop logic that works from both the SwiftUI store and from App Intents
-/// (Lock Screen and Dynamic Island buttons). All mutations go through a fresh ModelContext
-/// so they're safe to call from background-launched intent processes.
+/// Headless start/stop logic for App Intents (Lock Screen / Dynamic Island buttons), scoped to a
+/// specific baby. Runs in the app's process and updates that baby's Live Activity directly.
 @MainActor
 enum SleepActions {
-    static let schema = Schema([Baby.self, NapSession.self])
+    private static var context: NSManagedObjectContext { CoreDataStack.shared.viewContext }
 
-    static func openContainer() throws -> ModelContainer {
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        return try ModelContainer(for: schema, configurations: config)
+    private static func resolveBabyID(_ explicit: UUID?) -> UUID? {
+        explicit ?? TrackingState.selectedBabyID ?? fetchFirstBaby(context: context)?.id
     }
 
-    /// Returns the started session, or nil if a session is already active.
     @discardableResult
-    static func startNap(at date: Date = .now) async -> NapSession? {
-        guard let container = try? openContainer() else { return nil }
-        let context = container.mainContext
-
-        if let active = fetchActive(context: context) { return active }
+    static func startNap(babyID explicitID: UUID? = nil, at date: Date = .now) async -> NapSession? {
+        let ctx = context
+        guard let babyID = resolveBabyID(explicitID) else { return nil }
+        if let active = fetchActive(babyID: babyID, context: ctx) { return active }
 
         let kind = NapSession.classify(start: date)
-        let session = NapSession(startedAt: date, kind: kind)
-        context.insert(session)
-        try? context.save()
+        let session = NapSession.create(in: ctx, startedAt: date, kind: kind, babyID: babyID)
+        try? ctx.save()
 
-        let babyName = fetchBaby(context: context)?.name ?? "Baby"
-        NapLiveActivityManager.shared.startNapActivity(
-            babyName: babyName,
-            startedAt: date,
-            kind: kind
-        )
+        let name = fetchBaby(id: babyID, context: ctx)?.displayName ?? "Baby"
+        NapLiveActivityManager.shared.sync(babyID: babyID.uuidString, to: .napping(start: date, kind: kind), babyName: name)
         NotificationCenter.default.post(name: .perfectNapStateChanged, object: nil)
         return session
     }
 
-    /// Returns the stopped session, or nil if none was active.
     @discardableResult
-    static func stopNap(at date: Date = .now) async -> NapSession? {
-        guard let container = try? openContainer() else { return nil }
-        let context = container.mainContext
-
-        guard let session = fetchActive(context: context) else { return nil }
+    static func stopNap(babyID explicitID: UUID? = nil, at date: Date = .now) async -> NapSession? {
+        let ctx = context
+        guard let babyID = resolveBabyID(explicitID),
+              let session = fetchActive(babyID: babyID, context: ctx) else { return nil }
         session.endedAt = date
-        try? context.save()
+        try? ctx.save()
 
-        if let baby = fetchBaby(context: context), session.kind == .nap {
-            let prevEnd = previousSleepEnd(before: session, context: context)
-            let napsToday = fetchCompletedToday(context: context)
-            if let updated = AdaptiveModel.update(
-                baby: baby,
-                endingNap: session,
-                previousSleepEnd: prevEnd,
-                napsToday: napsToday
-            ) {
+        let baby = fetchBaby(id: babyID, context: ctx)
+        if let baby, session.kind == .nap {
+            let prevEnd = previousSleepEnd(before: session, babyID: babyID, context: ctx)
+            let napsToday = fetchCompletedToday(babyID: babyID, context: ctx)
+            if let updated = AdaptiveModel.update(baby: baby, endingNap: session, previousSleepEnd: prevEnd, napsToday: napsToday) {
                 baby.adaptationFactor = updated.factor
                 baby.adaptationConfidence = updated.confidence
-                try? context.save()
+                try? ctx.save()
             }
         }
 
-        // Update Live Activity to "awake" with the next nap prediction
-        if let baby = fetchBaby(context: context) {
-            let predictor = NapPredictor(baby: baby)
-            let lastCompleted = fetchLastCompleted(context: context)
-            let napsToday = fetchCompletedToday(context: context)
-            let nightTotal = totalNightSleepEndingAt(date, context: context)
-            let prediction = predictor.predict(
-                lastSleep: lastCompleted,
-                napsToday: napsToday,
-                lastNightTotalSeconds: nightTotal
+        let name = baby?.displayName ?? "Baby"
+        if let baby {
+            let prediction = NapPredictor(baby: baby).predict(
+                lastSleep: fetchLastCompleted(babyID: babyID, context: ctx),
+                napsToday: fetchCompletedToday(babyID: babyID, context: ctx),
+                lastNightTotalSeconds: totalNightSleepEndingAt(date, babyID: babyID, context: ctx)
             )
             if let prediction {
-                NapLiveActivityManager.shared.endNapActivity(
-                    babyName: baby.name,
-                    nextNapAt: prediction.recommendedStart
-                )
+                NapLiveActivityManager.shared.sync(babyID: babyID.uuidString, to: .awake(nextNapAt: prediction.recommendedStart, lastEndedAt: date, latestNapAt: prediction.latestStart), babyName: name)
             } else {
-                NapLiveActivityManager.shared.endAll()
+                NapLiveActivityManager.shared.sync(babyID: babyID.uuidString, to: .none, babyName: name)
             }
         }
         NotificationCenter.default.post(name: .perfectNapStateChanged, object: nil)
         return session
     }
 
-    // MARK: - Helpers
+    // MARK: - Helpers (baby-scoped)
 
-    static func fetchActive(context: ModelContext) -> NapSession? {
-        let descriptor = FetchDescriptor<NapSession>(
-            predicate: #Predicate { $0.endedAt == nil },
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor))?.first
+    static func fetchActive(babyID: UUID, context: NSManagedObjectContext) -> NapSession? {
+        let req = NapSession.fetchRequest()
+        req.predicate = NSPredicate(format: "endedAt == nil AND babyID == %@", babyID as NSUUID)
+        req.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+        req.fetchLimit = 1
+        return (try? context.fetch(req))?.first
     }
 
-    static func fetchBaby(context: ModelContext) -> Baby? {
-        let descriptor = FetchDescriptor<Baby>(sortBy: [SortDescriptor(\.createdAt)])
-        return (try? context.fetch(descriptor))?.first
+    static func fetchFirstBaby(context: NSManagedObjectContext) -> Baby? {
+        let req = Baby.fetchRequest()
+        req.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+        req.fetchLimit = 1
+        return (try? context.fetch(req))?.first
     }
 
-    static func fetchLastCompleted(context: ModelContext) -> NapSession? {
-        let descriptor = FetchDescriptor<NapSession>(
-            predicate: #Predicate { $0.endedAt != nil },
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor))?.first
+    static func fetchBaby(id: UUID, context: NSManagedObjectContext) -> Baby? {
+        let req = Baby.fetchRequest()
+        req.predicate = NSPredicate(format: "id == %@", id as NSUUID)
+        req.fetchLimit = 1
+        return (try? context.fetch(req))?.first
     }
 
-    static func fetchCompletedToday(context: ModelContext) -> [NapSession] {
+    static func fetchLastCompleted(babyID: UUID, context: NSManagedObjectContext) -> NapSession? {
+        let req = NapSession.fetchRequest()
+        req.predicate = NSPredicate(format: "endedAt != nil AND babyID == %@", babyID as NSUUID)
+        req.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+        req.fetchLimit = 1
+        return (try? context.fetch(req))?.first
+    }
+
+    static func fetchCompletedToday(babyID: UUID, context: NSManagedObjectContext) -> [NapSession] {
         let dayStart = Calendar.current.startOfDay(for: .now)
-        let descriptor = FetchDescriptor<NapSession>(
-            predicate: #Predicate { $0.endedAt != nil && $0.startedAt >= dayStart },
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
+        let req = NapSession.fetchRequest()
+        req.predicate = NSPredicate(format: "endedAt != nil AND babyID == %@ AND startedAt >= %@", babyID as NSUUID, dayStart as NSDate)
+        req.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+        return (try? context.fetch(req)) ?? []
     }
 
-    static func previousSleepEnd(before session: NapSession, context: ModelContext) -> Date? {
-        let descriptor = FetchDescriptor<NapSession>(
-            predicate: #Predicate { $0.endedAt != nil },
-            sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
-        )
-        let all = (try? context.fetch(descriptor)) ?? []
-        return all.first(where: { $0.id != session.id && $0.startedAt < session.startedAt })?.endedAt
+    static func previousSleepEnd(before session: NapSession, babyID: UUID, context: NSManagedObjectContext) -> Date? {
+        let req = NapSession.fetchRequest()
+        req.predicate = NSPredicate(format: "endedAt != nil AND babyID == %@", babyID as NSUUID)
+        req.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+        let all = (try? context.fetch(req)) ?? []
+        return all.first(where: { $0.objectID != session.objectID && $0.start < session.start })?.endedAt
     }
 
-    /// Sum of all `.night` sessions whose end is within the 18 hours preceding `reference`.
-    /// This is "last night's total sleep" — used to refine the morning wake window.
-    static func totalNightSleepEndingAt(_ reference: Date, context: ModelContext) -> TimeInterval {
+    static func totalNightSleepEndingAt(_ reference: Date, babyID: UUID, context: NSManagedObjectContext) -> TimeInterval {
         let earliest = reference.addingTimeInterval(-18 * 3600)
-        let descriptor = FetchDescriptor<NapSession>(
-            predicate: #Predicate { $0.endedAt != nil && $0.startedAt >= earliest },
-            sortBy: [SortDescriptor(\.startedAt)]
-        )
-        let recent = (try? context.fetch(descriptor)) ?? []
-        return recent
-            .filter { $0.kind == .night }
-            .reduce(0.0) { $0 + $1.duration }
+        let req = NapSession.fetchRequest()
+        req.predicate = NSPredicate(format: "endedAt != nil AND babyID == %@ AND startedAt >= %@", babyID as NSUUID, earliest as NSDate)
+        req.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: true)]
+        return ((try? context.fetch(req)) ?? []).filter { $0.kind == .night }.reduce(0.0) { $0 + $1.duration }
     }
 }

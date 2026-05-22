@@ -6,5 +6,15 @@
     <array>
         <string>group.com.marcushyett.perfectnap.shared</string>
     </array>
+    <key>com.apple.developer.icloud-container-identifiers</key>
+    <array>
+        <string>iCloud.com.marcushyett.perfectnap</string>
+    </array>
+    <key>com.apple.developer.icloud-services</key>
+    <array>
+        <string>CloudKit</string>
+    </array>
+    <key>aps-environment</key>
+    <string>production</string>
 </dict>
 </plist>

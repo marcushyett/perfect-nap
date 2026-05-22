@@ -11,7 +11,9 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "11"
+    DEVELOPMENT_TEAM: "9DG37ADF64"
+    CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
     # Skip code signing on simulator builds so the project runs without a team.
@@ -36,7 +38,10 @@ targets:
       path: PerfectNap/Info.plist
       properties:
         CFBundleDisplayName: Perfect Nap
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
         NSSupportsLiveActivities: YES
         NSSupportsLiveActivitiesFrequentUpdates: YES
         UIBackgroundModes:
@@ -61,6 +66,21 @@ targets:
       - target: PerfectNapWidget
         embed: true
 
+  PerfectNapTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: PerfectNapTests
+    dependencies:
+      - target: PerfectNap
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.marcushyett.perfectnap.tests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+
   PerfectNapWidget:
     type: app-extension
     platform: iOS
@@ -74,6 +94,8 @@ targets:
       path: PerfectNapWidget/Info.plist
       properties:
         CFBundleDisplayName: Perfect Nap
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:

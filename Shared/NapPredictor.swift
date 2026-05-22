@@ -11,6 +11,34 @@ struct NapPrediction {
     let basedOnNapEnd: Date
 
     var isOverdue: Bool { recommendedStart <= .now }
+
+    /// Where the baby sits on the sleep-pressure gradient right now.
+    func status(at now: Date = .now) -> WakeWindowStatus {
+        if now < earliestStart { return .building }
+        if now <= latestStart { return .sweetSpot }
+        return .overtired
+    }
+
+    /// Minutes past the latest healthy nap time (0 until overtired). Never negative.
+    func minutesOvertired(at now: Date = .now) -> Int {
+        max(0, Int(now.timeIntervalSince(latestStart) / 60))
+    }
+
+    /// Minutes until the recommended nap (0 once reached). Never negative.
+    func minutesUntilRecommended(at now: Date = .now) -> Int {
+        max(0, Int(recommendedStart.timeIntervalSince(now) / 60))
+    }
+}
+
+/// The sleep-pressure gradient from the two-process model. Process S (homeostatic sleep pressure /
+/// adenosine) builds with time awake; once it's high enough *and* aligned with the circadian dip the
+/// baby settles easily — the "sweet spot." Stay awake past that and the body fights fatigue with a
+/// cortisol/adrenaline "second wind" (overtired), which makes settling harder and fragments the
+/// sleep that follows. (Borbély two-process model; Weissbluth; Karp; Taking Cara Babies; Huckleberry.)
+enum WakeWindowStatus {
+    case building     // not enough sleep pressure yet — too early
+    case sweetSpot    // pressure + circadian aligned — easiest settle
+    case overtired    // past the window — second-wind risk, hardest settle
 }
 
 enum WindowPosition {
@@ -52,18 +80,39 @@ struct NapPredictor {
         napsToday: [NapSession],
         lastNightTotalSeconds: TimeInterval? = nil
     ) -> NapPrediction? {
-        guard let last = lastSleep, let endedAt = last.endedAt else { return nil }
-
         let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
-        let position = currentPosition(
-            lastSleep: last,
-            napsToday: napsToday,
-            profile: profile
-        )
+
+        var anchorEnd: Date
+        let position: WindowPosition
+        let napQualityFactor: Double
+        let isSynthetic: Bool
+        var inferredMissedNapAt: Date?
+
+        if let last = lastSleep, let endedAt = last.endedAt {
+            anchorEnd = endedAt
+            position = currentPosition(lastSleep: last, napsToday: napsToday, profile: profile)
+            napQualityFactor = napQualityAdjustment(lastSleep: last, profile: profile)
+            isSynthetic = false
+
+            // If they've been "awake" implausibly long with no nap logged, assume an unlogged nap and
+            // predict from there rather than reporting a many-hour overdue window.
+            if let inferred = SkippedNapDetector.detect(
+                lastWake: endedAt, now: now, profile: profile, adaptationFactor: baby.adaptationFactor
+            ) {
+                anchorEnd = inferred.likelyEnd
+                inferredMissedNapAt = inferred.likelyStart
+            }
+        } else {
+            // No prior sleep recorded — anchor the first wake window from now so the user always
+            // sees a countdown. Position defaults to mid-day so age-typical baseline applies.
+            anchorEnd = now
+            position = .middleOfDay
+            napQualityFactor = 1.0
+            isSynthetic = true
+        }
 
         let baselineMinutes = profile.window.typicalMinutes
         let positionFactor = position.factor(profile: profile)
-        let napQualityFactor = napQualityAdjustment(lastSleep: last, profile: profile)
         let nightFactor = nightQualityAdjustment(
             position: position,
             profile: profile,
@@ -74,13 +123,13 @@ struct NapPredictor {
         let combined = positionFactor * napQualityFactor * nightFactor * adaptation
 
         let adjustedMinutes = Double(baselineMinutes) * combined
-        let recommended = endedAt.addingTimeInterval(adjustedMinutes * 60)
+        let recommended = anchorEnd.addingTimeInterval(adjustedMinutes * 60)
         let lowRange = Double(profile.window.lowMinutes) * combined
         let highRange = Double(profile.window.highMinutes) * combined
-        let earliest = endedAt.addingTimeInterval(lowRange * 60)
-        let latest = endedAt.addingTimeInterval(highRange * 60)
+        let earliest = anchorEnd.addingTimeInterval(lowRange * 60)
+        let latest = anchorEnd.addingTimeInterval(highRange * 60)
 
-        let rationale = buildRationale(
+        var rationale = buildRationale(
             profile: profile,
             position: position,
             positionFactor: positionFactor,
@@ -89,18 +138,54 @@ struct NapPredictor {
             adaptation: adaptation,
             baseline: baselineMinutes,
             adjusted: Int(adjustedMinutes.rounded()),
-            lastNightTotalSeconds: lastNightTotalSeconds
+            lastNightTotalSeconds: lastNightTotalSeconds,
+            isSynthetic: isSynthetic
         )
 
+        if let missedAt = inferredMissedNapAt {
+            rationale = "Assuming an unlogged nap around \(clockString(missedAt)) (you'd been awake longer than typical) — predicting from there. " + rationale
+        }
+
+        var finalRecommended = recommended
+        var finalEarliest = earliest
+        var finalLatest = latest
+
+        // When a target bedtime is set, plan backward from it — the bedtime anchor overrides the
+        // pure forward wake-window for the *recommended* time, while the forward window stays as the
+        // outer earliest/latest guardrail.
+        if !isSynthetic,
+           let targetBedtime = baby.targetBedtime(on: now),
+           let plan = BedtimePlanner.plan(
+               targetBedtime: targetBedtime,
+               now: now,
+               lastWake: anchorEnd,
+               profile: profile,
+               adaptationFactor: baby.adaptationFactor,
+               completedNapsToday: napsToday.filter { $0.kind == .nap && $0.endedAt != nil }.count
+           ) {
+            finalRecommended = plan.recommendedNapStart
+            finalEarliest = min(earliest, plan.recommendedNapStart)
+            finalLatest = max(latest, plan.recommendedNapStart)
+            let bedFmt = clockString(targetBedtime)
+            if plan.isLastNapBeforeBed {
+                rationale += " Bedtime-optimised: this is the last nap before your \(bedFmt) target — ending it ~\(Int((Double(profile.window.typicalMinutes) * profile.preBedtimeFactor).rounded())) min before bed hits the sweet spot."
+            } else {
+                rationale += " Bedtime-optimised for your \(bedFmt) target: \(plan.napsRemaining) naps to go, spaced to land at the bedtime sweet spot."
+            }
+            if plan.clampedToLimits {
+                rationale += " (Adjusted to stay within a healthy wake window.)"
+            }
+        }
+
         return NapPrediction(
-            recommendedStart: recommended,
-            earliestStart: earliest,
-            latestStart: latest,
+            recommendedStart: finalRecommended,
+            earliestStart: finalEarliest,
+            latestStart: finalLatest,
             usedWindowMinutes: Int(adjustedMinutes.rounded()),
             baselineMinutes: baselineMinutes,
             position: position,
             rationale: rationale,
-            basedOnNapEnd: endedAt
+            basedOnNapEnd: anchorEnd
         )
     }
 
@@ -156,6 +241,11 @@ struct NapPredictor {
         min(max(factor, 0.75), 1.25)
     }
 
+    private func clockString(_ date: Date) -> String {
+        let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = .none
+        return f.string(from: date)
+    }
+
     private func buildRationale(
         profile: AgeProfile,
         position: WindowPosition,
@@ -165,9 +255,13 @@ struct NapPredictor {
         adaptation: Double,
         baseline: Int,
         adjusted: Int,
-        lastNightTotalSeconds: TimeInterval?
+        lastNightTotalSeconds: TimeInterval?,
+        isSynthetic: Bool = false
     ) -> String {
         var parts: [String] = []
+        if isSynthetic {
+            parts.append("No prior nap logged yet — using the age-typical baseline.")
+        }
         parts.append("Baseline for \(profile.label): ~\(baseline) min awake.")
         if abs(positionFactor - 1.0) > 0.01 {
             let explanation = positionExplanation(profile: profile, position: position, factor: positionFactor)

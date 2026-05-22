@@ -2,13 +2,20 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Environment(SleepStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var name: String = ""
     @State private var birthDate: Date = Calendar.current.date(byAdding: .month, value: -4, to: .now) ?? .now
 
+    private var titleColor: Color {
+        colorScheme == .dark
+            ? Color(red: 0.96, green: 0.91, blue: 0.82)
+            : Color(red: 0.20, green: 0.15, blue: 0.10)
+    }
+
     var body: some View {
         ZStack {
-            Theme.awakeGradient.ignoresSafeArea()
+            Theme.awakeBackground(for: colorScheme).ignoresSafeArea()
             VStack(spacing: 24) {
                 Spacer()
                 VStack(spacing: 8) {
@@ -26,7 +33,7 @@ struct OnboardingView: View {
                         TextField("Baby", text: $name)
                             .textInputAutocapitalization(.words)
                             .padding()
-                            .background(.white.opacity(0.6))
+                            .background(.regularMaterial)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     VStack(alignment: .leading, spacing: 6) {
@@ -35,7 +42,7 @@ struct OnboardingView: View {
                             .datePickerStyle(.wheel)
                             .labelsHidden()
                             .frame(maxWidth: .infinity)
-                            .background(.white.opacity(0.6))
+                            .background(.regularMaterial)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                 }
@@ -59,7 +66,7 @@ struct OnboardingView: View {
                 Spacer().frame(height: 12)
             }
             .padding(24)
-            .foregroundStyle(Color(red: 0.20, green: 0.15, blue: 0.10))
+            .foregroundStyle(titleColor)
         }
     }
 }

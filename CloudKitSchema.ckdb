@@ -1,0 +1,50 @@
+DEFINE SCHEMA
+
+    RECORD TYPE CD_Baby (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        CD_adaptationConfidence DOUBLE,
+        CD_adaptationFactor     DOUBLE,
+        CD_birthDate            TIMESTAMP,
+        CD_createdAt            TIMESTAMP,
+        CD_entityName           STRING QUERYABLE,
+        CD_id                   STRING QUERYABLE SEARCHABLE,
+        CD_name                 STRING,
+        CD_targetBedtimeMinutes INT64,
+        GRANT WRITE TO "_creator",
+        GRANT READ TO "_creator"
+    );
+
+    RECORD TYPE CD_NapSession (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        CD_babyID     STRING QUERYABLE,
+        CD_endedAt    TIMESTAMP,
+        CD_entityName STRING QUERYABLE,
+        CD_id         STRING QUERYABLE SEARCHABLE,
+        CD_kindRaw    STRING,
+        CD_note       STRING,
+        CD_startedAt  TIMESTAMP,
+        GRANT WRITE TO "_creator",
+        GRANT READ TO "_creator"
+    );
+
+    RECORD TYPE Users (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE,
+        roles           LIST<INT64>,
+        GRANT WRITE TO "_creator",
+        GRANT READ TO "_world"
+    );

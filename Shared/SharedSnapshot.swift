@@ -43,6 +43,26 @@ public struct SharedSnapshot: Codable, Equatable {
     }
 }
 
+public enum TrackingState {
+    private static let pausedKey = "perfectnap.trackingPaused"
+    private static let selectedBabyKey = "perfectnap.selectedBabyID"
+    private static var defaults: UserDefaults {
+        UserDefaults(suiteName: SharedSnapshotStore.appGroupID) ?? .standard
+    }
+
+    public static var isPaused: Bool {
+        get { defaults.bool(forKey: pausedKey) }
+        set { defaults.set(newValue, forKey: pausedKey) }
+    }
+
+    /// The baby the user is currently viewing/controlling in the app (and the one the home widget
+    /// + wake-window Live Activity reflect).
+    public static var selectedBabyID: UUID? {
+        get { (defaults.string(forKey: selectedBabyKey)).flatMap(UUID.init(uuidString:)) }
+        set { defaults.set(newValue?.uuidString, forKey: selectedBabyKey) }
+    }
+}
+
 public enum SharedSnapshotStore {
     public static let appGroupID = "group.com.marcushyett.perfectnap.shared"
     private static let filename = "snapshot.json"

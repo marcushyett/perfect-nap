@@ -32,7 +32,7 @@ struct TodayTimelineChart: View {
     private var blocks: [DaySleepBlock] {
         sessions.compactMap { session in
             let end = session.endedAt ?? .now
-            let clampedStart = max(session.startedAt, dayStart)
+            let clampedStart = max(session.start, dayStart)
             let clampedEnd = min(end, dayEnd)
             guard clampedEnd > clampedStart else { return nil }
             return DaySleepBlock(start: clampedStart, end: clampedEnd, kind: session.kind)
@@ -89,7 +89,7 @@ struct WeeklyDaySleepChart: View {
         return (0..<7).reversed().map { offset in
             let day = cal.date(byAdding: .day, value: -offset, to: today) ?? today
             let dayEnd = cal.date(byAdding: .day, value: 1, to: day) ?? day
-            let dayNaps = sessions.filter { $0.kind == .nap && $0.startedAt >= day && $0.startedAt < dayEnd && $0.endedAt != nil }
+            let dayNaps = sessions.filter { $0.kind == .nap && $0.start >= day && $0.start < dayEnd && $0.endedAt != nil }
             let totalMinutes = dayNaps.reduce(0.0) { $0 + $1.duration } / 60.0
             return DayTotal(
                 day: day,
@@ -182,13 +182,13 @@ struct WeeklyWakeWindowChart: View {
             let day = cal.date(byAdding: .day, value: -offset, to: today) ?? today
             let dayEnd = cal.date(byAdding: .day, value: 1, to: day) ?? day
             let dayNaps = sessions
-                .filter { $0.kind == .nap && $0.endedAt != nil && $0.startedAt >= day && $0.startedAt < dayEnd }
-                .sorted { $0.startedAt < $1.startedAt }
+                .filter { $0.kind == .nap && $0.endedAt != nil && $0.start >= day && $0.start < dayEnd }
+                .sorted { $0.start < $1.start }
 
             var gaps: [TimeInterval] = []
             for (prev, curr) in zip(dayNaps, dayNaps.dropFirst()) {
                 if let prevEnd = prev.endedAt {
-                    gaps.append(curr.startedAt.timeIntervalSince(prevEnd))
+                    gaps.append(curr.start.timeIntervalSince(prevEnd))
                 }
             }
             let averageMin = gaps.isEmpty ? 0 : (gaps.reduce(0, +) / Double(gaps.count)) / 60

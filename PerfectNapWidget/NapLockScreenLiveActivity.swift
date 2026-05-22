@@ -6,7 +6,7 @@ import AppIntents
 struct NapLockScreenLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NapActivityAttributes.self) { context in
-            LockScreenView(state: context.state, babyName: context.attributes.babyName)
+            LockScreenView(state: context.state, babyName: context.attributes.babyName, babyID: context.attributes.babyID)
                 .activityBackgroundTint(.indigo.opacity(0.15))
                 .activitySystemActionForegroundColor(.primary)
         } dynamicIsland: { context in
@@ -23,7 +23,7 @@ struct NapLockScreenLiveActivity: Widget {
                     expandedTrailing(state: context.state)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    expandedBottom(state: context.state)
+                    expandedBottom(state: context.state, babyID: context.attributes.babyID)
                 }
             } compactLeading: {
                 Image(systemName: context.state.phase == .napping ? "moon.zzz.fill" : "sun.max.fill")
@@ -47,12 +47,15 @@ struct NapLockScreenLiveActivity: Widget {
                     .font(.title2.weight(.semibold)).monospacedDigit()
             }
         case .awake:
-            if let next = state.nextNapAt {
+            if isOvertired(state) {
+                Label("Overtired", systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline).foregroundStyle(.red)
+            } else if let next = state.nextNapAt {
                 if next > .now {
                     Text(timerInterval: .now...next, countsDown: true)
                         .font(.title2.weight(.semibold)).monospacedDigit()
                 } else {
-                    Text("Window open")
+                    Text("Sweet spot")
                         .font(.headline).foregroundStyle(.orange)
                 }
             }
@@ -60,15 +63,15 @@ struct NapLockScreenLiveActivity: Widget {
     }
 
     @ViewBuilder
-    private func expandedBottom(state: NapActivityAttributes.ContentState) -> some View {
+    private func expandedBottom(state: NapActivityAttributes.ContentState, babyID: String) -> some View {
         HStack {
             switch state.phase {
             case .napping:
                 Text(state.sleepKind == "night" ? "Sleeping (overnight)" : "Napping")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
-                Button(intent: StopNapIntent()) {
-                    Label("Stop", systemImage: "stop.fill")
+                Button(intent: StopNapIntent(babyID: babyID)) {
+                    Label("Pause", systemImage: "pause.fill")
                         .font(.subheadline.weight(.semibold))
                 }
                 .tint(.indigo)
@@ -80,7 +83,7 @@ struct NapLockScreenLiveActivity: Widget {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(intent: StartNapIntent()) {
+                Button(intent: StartNapIntent(babyID: babyID)) {
                     Label("Start nap", systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold))
                 }
@@ -117,9 +120,16 @@ struct NapLockScreenLiveActivity: Widget {
     }
 }
 
+/// Past the latest healthy nap time → overtired (second-wind risk).
+private func isOvertired(_ state: NapActivityAttributes.ContentState) -> Bool {
+    if let latest = state.latestNapAt { return Date.now > latest }
+    return false
+}
+
 private struct LockScreenView: View {
     let state: NapActivityAttributes.ContentState
     let babyName: String
+    let babyID: String
 
     var body: some View {
         HStack(spacing: 16) {
@@ -148,16 +158,26 @@ private struct LockScreenView: View {
             Text(state.sleepKind == "night" ? "Sleeping overnight" : "Napping")
                 .font(.subheadline).foregroundStyle(.secondary)
         case .awake:
-            if let next = state.nextNapAt {
-                if next > .now {
-                    Text("Next nap suggestion")
-                        .font(.subheadline).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                if isOvertired(state) {
+                    Label("Overtired", systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.bold)).foregroundStyle(.red)
+                } else if let next = state.nextNapAt, next > .now {
+                    Text("Next nap suggestion").font(.subheadline).foregroundStyle(.secondary)
                 } else {
-                    Text("Sleep window open")
-                        .font(.subheadline).foregroundStyle(.orange)
+                    Text("Sweet spot — good for a nap").font(.subheadline).foregroundStyle(.orange)
+                }
+                if let last = state.lastEndedAt {
+                    Text("Last woke \(clock(last))").font(.caption2).foregroundStyle(.secondary)
                 }
             }
         }
+    }
+
+
+    private func clock(_ date: Date) -> String {
+        let f = DateFormatter(); f.timeStyle = .short; f.dateStyle = .none
+        return f.string(from: date)
     }
 
     @ViewBuilder
@@ -169,7 +189,10 @@ private struct LockScreenView: View {
                     .font(.title.weight(.bold)).monospacedDigit()
             }
         case .awake:
-            if let next = state.nextNapAt, next > .now {
+            if isOvertired(state), let latest = state.latestNapAt {
+                Text(timerInterval: latest...Date.distantFuture, countsDown: false)
+                    .font(.title.weight(.bold)).monospacedDigit().foregroundStyle(.red)
+            } else if let next = state.nextNapAt, next > .now {
                 Text(timerInterval: .now...next, countsDown: true)
                     .font(.title.weight(.bold)).monospacedDigit()
             } else {
@@ -183,20 +206,20 @@ private struct LockScreenView: View {
     private var actionButton: some View {
         switch state.phase {
         case .napping:
-            Button(intent: StopNapIntent()) {
+            Button(intent: StopNapIntent(babyID: babyID)) {
                 ZStack {
                     Circle().fill(Color.white)
                         .frame(width: 54, height: 54)
                         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                    Image(systemName: "stop.fill")
+                    Image(systemName: "pause.fill")
                         .font(.title2)
                         .foregroundStyle(.indigo)
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Stop nap")
+            .accessibilityLabel("Pause nap")
         case .awake:
-            Button(intent: StartNapIntent()) {
+            Button(intent: StartNapIntent(babyID: babyID)) {
                 ZStack {
                     Circle().fill(Color.indigo)
                         .frame(width: 54, height: 54)

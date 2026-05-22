@@ -1,32 +1,32 @@
 import SwiftUI
-import SwiftData
+import CoreData
 
 @main
 struct PerfectNapApp: App {
-    let modelContainer: ModelContainer
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    private let stack = CoreDataStack.shared
     @State private var store: SleepStore
 
     init() {
-        let schema = Schema([Baby.self, NapSession.self])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        do {
-            let container = try ModelContainer(for: schema, configurations: config)
-            self.modelContainer = container
-            self._store = State(wrappedValue: SleepStore(context: container.mainContext))
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
+        let ctx = CoreDataStack.shared.viewContext
+        LegacyMigration.runIfNeeded(into: ctx)
+        DefaultSettings.applyDefaultBedtimeIfNeeded(in: ctx)
+        DefaultSettings.assignOrphanNapsIfNeeded(in: ctx)
+        _store = State(wrappedValue: SleepStore(context: ctx))
+        #if DEBUG
+        CoreDataStack.shared.initializeCloudKitSchemaForDevelopment()
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(store)
+                .environment(\.managedObjectContext, stack.viewContext)
                 .onAppear {
                     NapNotifier.shared.requestAuthorisationIfNeeded()
                 }
         }
-        .modelContainer(modelContainer)
     }
 }
 
