@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var bedtimeEnabled = false
     @State private var bedtimeTime = Calendar.current.date(from: DateComponents(hour: 19, minute: 0)) ?? .now
     @State private var babyToRemove: Baby?
+    @State private var showAddBaby = false
 
     private var liveActivityStatus: String {
         let defaults = UserDefaults(suiteName: SharedSnapshotStore.appGroupID) ?? .standard
@@ -29,7 +30,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Baby") {
+                Section("Current baby") {
                     if let baby = store.baby {
                         TextField("Name", text: $editName)
                             .onAppear { editName = baby.displayName }
@@ -39,12 +40,14 @@ struct SettingsView: View {
                     }
                 }
 
-                if store.babies.count > 1 {
-                    Section("All babies") {
-                        ForEach(store.babies, id: \.objectID) { b in
+                Section("Babies") {
+                    ForEach(store.babies, id: \.objectID) { b in
+                        Button {
+                            store.selectBaby(b)
+                        } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(b.displayName)
+                                    Text(b.displayName).foregroundStyle(.primary)
                                     if store.isShared(b), let owner = SharingCoordinator.shared.ownerDisplayName(for: b) {
                                         Text("Shared by \(owner)").font(.caption).foregroundStyle(.secondary)
                                     } else {
@@ -52,12 +55,21 @@ struct SettingsView: View {
                                     }
                                 }
                                 Spacer()
-                                Button(role: .destructive) { babyToRemove = b } label: {
-                                    Image(systemName: store.isShared(b) ? "person.badge.minus" : "trash")
+                                if b.objectID == store.baby?.objectID {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
                                 }
-                                .buttonStyle(.borderless)
+                                if store.babies.count > 1 {
+                                    Button(role: .destructive) { babyToRemove = b } label: {
+                                        Image(systemName: store.isShared(b) ? "person.badge.minus" : "trash")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .padding(.leading, 8)
+                                }
                             }
                         }
+                    }
+                    Button { showAddBaby = true } label: {
+                        Label("Add another baby", systemImage: "plus.circle.fill")
                     }
                 }
 
@@ -188,6 +200,14 @@ struct SettingsView: View {
                 } else {
                     Text("This permanently deletes this baby and all its logged sleep.")
                 }
+            }
+            .sheet(isPresented: $showAddBaby) {
+                AddBabySheet { name, birthDate in
+                    store.addBaby(name: name, birthDate: birthDate)
+                    showAddBaby = false
+                    dismiss()
+                }
+                .presentationDetents([.medium])
             }
             .sheet(item: $sharePackage) { pkg in
                 CloudSharingView(share: pkg.share, container: pkg.container)

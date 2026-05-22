@@ -204,9 +204,7 @@ struct HomeView: View {
                     HStack(spacing: 4) {
                         Text(store.baby?.displayName ?? "Baby")
                             .font(.title3.weight(.semibold))
-                        if store.babies.count > 1 {
-                            Image(systemName: "chevron.up.chevron.down").font(.caption2).opacity(0.6)
-                        }
+                        Image(systemName: "chevron.down").font(.caption2).opacity(0.6)
                     }
                     if let baby = store.baby, store.isShared(baby), let owner = SharingCoordinator.shared.ownerDisplayName(for: baby) {
                         Text("Shared by \(owner)").font(.caption).opacity(0.7)

@@ -18,6 +18,7 @@ final class SleepStore {
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
+    nonisolated(unsafe) private var debounceTask: Task<Void, Never>?
     private var lastSnapshot: SharedSnapshot?
 
     static let defaultBedtimeMinutes: Int = 19 * 60  // 7:00 PM
@@ -27,14 +28,26 @@ final class SleepStore {
         refresh()
         startTicking()
         NotificationCenter.default.addObserver(forName: .perfectNapStateChanged, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.scheduleRefresh() }
         }
         NotificationCenter.default.addObserver(forName: .NSPersistentStoreRemoteChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.scheduleRefresh() }
         }
     }
 
-    deinit { refreshTask?.cancel() }
+    deinit { refreshTask?.cancel(); debounceTask?.cancel() }
+
+    /// Coalesce bursts of change notifications (CloudKit's initial sync fires many remote-change
+    /// posts) into a single refresh, so the UI settles once instead of flickering through every
+    /// intermediate merge state.
+    private func scheduleRefresh() {
+        debounceTask?.cancel()
+        debounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
+    }
 
     // MARK: - Babies
 
@@ -224,13 +237,16 @@ final class SleepStore {
 
         if let baby, activeSession == nil, !TrackingState.isPaused {
             let predictor = NapPredictor(baby: baby)
-            prediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds)
-            if let lastEnd = lastCompletedSleep?.endedAt {
-                skippedNapInference = SkippedNapDetector.detect(lastWake: lastEnd, now: .now,
+            let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds)
+            if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
+            let newInference = lastCompletedSleep?.endedAt.flatMap {
+                SkippedNapDetector.detect(lastWake: $0, now: .now,
                     profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays), adaptationFactor: baby.adaptationFactor)
-            } else { skippedNapInference = nil }
+            }
+            if skippedNapInference != newInference { skippedNapInference = newInference }
         } else {
-            prediction = nil; skippedNapInference = nil
+            if prediction != nil { prediction = nil }
+            if skippedNapInference != nil { skippedNapInference = nil }
         }
 
         writeSnapshotIfChanged()

@@ -1,6 +1,6 @@
 import Foundation
 
-struct NapPrediction {
+struct NapPrediction: Equatable {
     let recommendedStart: Date
     let earliestStart: Date
     let latestStart: Date
@@ -47,7 +47,7 @@ enum WakeWindowStatus {
     case overtired    // past the window — second-wind risk, hardest settle
 }
 
-enum WindowPosition {
+enum WindowPosition: Equatable {
     case firstOfDay
     case middleOfDay
     case beforeBedtime
