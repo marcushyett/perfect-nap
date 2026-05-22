@@ -57,11 +57,13 @@ enum BedtimePlanner {
         let stepsBack = Double(napsRemaining - 1) * (interNapWW + napLen)
         let idealNextStart = lastNapStart.addingTimeInterval(-stepsBack * 60)
 
-        // Clamp to physiological wake-window limits measured from the last wake.
+        // Clamp to physiological wake-window limits measured from the last wake. We deliberately do
+        // NOT floor at `now`: when the ideal nap time has already passed, the recommended time must
+        // be allowed to sit in the past so the app can report how *overdue* the nap is, rather than
+        // dragging the recommendation forward with the clock (which read as "overdue by 0").
         let minStart = lastWake.addingTimeInterval(Double(profile.window.lowMinutes) * adapt * 60)
         let maxStart = lastWake.addingTimeInterval(Double(profile.window.highMinutes) * adapt * 60)
-        let floorStart = max(minStart, now)
-        var nextStart = min(max(idealNextStart, floorStart), max(maxStart, floorStart))
+        var nextStart = min(max(idealNextStart, minStart), maxStart)
         let clamped = abs(nextStart.timeIntervalSince(idealNextStart)) > 60
 
         // If clamping pushed the only remaining nap, recompute bedtime from the achievable nap end.
@@ -74,7 +76,7 @@ enum BedtimePlanner {
         let sweetSpot = center.addingTimeInterval(-tol)...center.addingTimeInterval(tol)
 
         // Guard against degenerate ordering after clamping.
-        if nextStart < floorStart { nextStart = floorStart }
+        if nextStart < minStart { nextStart = minStart }
 
         return BedtimePlan(
             recommendedNapStart: nextStart,

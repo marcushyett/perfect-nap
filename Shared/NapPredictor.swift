@@ -28,6 +28,12 @@ struct NapPrediction {
     func minutesUntilRecommended(at now: Date = .now) -> Int {
         max(0, Int(recommendedStart.timeIntervalSince(now) / 60))
     }
+
+    /// Minutes past the recommended nap time (0 until reached). Never negative. This is the
+    /// user-facing "overdue by X" — measured from the recommended time, not the latest.
+    func minutesOverdue(at now: Date = .now) -> Int {
+        max(0, Int(now.timeIntervalSince(recommendedStart) / 60))
+    }
 }
 
 /// The sleep-pressure gradient from the two-process model. Process S (homeostatic sleep pressure /

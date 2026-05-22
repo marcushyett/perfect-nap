@@ -14,6 +14,15 @@ struct HomeView: View {
     @State private var showBedtimeEditor = false
     @State private var showAddBaby = false
 
+    private func overdueSubtext(_ prediction: NapPrediction, overtired: Bool, now: Date) -> String {
+        if overtired {
+            return isPreBedtime(prediction, now: now)
+                ? "Overtired before bed — settle them soon to protect the night."
+                : "Past the window — a cortisol second wind now makes settling harder."
+        }
+        return "Still within a healthy window — aim to settle by \(CountdownFormatter.clock(prediction.latestStart))."
+    }
+
     /// True in the final stretch before the target bedtime — when overtiredness most damages the
     /// night (bedtime battles, fragmented sleep, early waking).
     private func isPreBedtime(_ prediction: NapPrediction, now: Date) -> Bool {
@@ -246,42 +255,37 @@ struct HomeView: View {
                 .opacity(0.85)
             }
         } else if let prediction = store.prediction {
-            let status = prediction.status(at: now)
+            let overdue = now >= prediction.recommendedStart
+            let overtired = now > prediction.latestStart
             VStack(spacing: 10) {
-                switch status {
-                case .building:
+                if !overdue {
                     Text("Next nap in")
                         .font(.subheadline.weight(.medium)).opacity(0.75)
                     Text(CountdownFormatter.string(from: max(0, prediction.recommendedStart.timeIntervalSince(now))))
                         .font(.system(size: 88, weight: .heavy, design: .rounded))
                         .monospacedDigit().contentTransition(.numericText())
-                case .sweetSpot:
-                    Text("Sweet spot")
-                        .font(.subheadline.weight(.semibold)).opacity(0.85)
-                    Text("Good time for a nap")
-                        .font(.system(size: 40, weight: .heavy, design: .rounded))
-                        .multilineTextAlignment(.center)
-                    Text("Window closes ~\(CountdownFormatter.clock(prediction.latestStart))")
-                        .font(.footnote).opacity(0.75)
-                case .overtired:
-                    Label("Overtired", systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(Color.red.opacity(0.85), in: Capsule())
-                    Text("Overdue by \(prediction.minutesOvertired(at: now)) min")
-                        .font(.system(size: 44, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                    Text(isPreBedtime(prediction, now: now)
-                         ? "Overtired before bed — settle them soon to protect the night."
-                         : "Past the ideal window — a second wind makes settling harder.")
+                } else {
+                    if overtired {
+                        Label("Overtired", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).padding(.vertical, 5)
+                            .background(Color.red.opacity(0.85), in: Capsule())
+                    } else {
+                        Text("Past the ideal time")
+                            .font(.subheadline.weight(.semibold)).opacity(0.85)
+                    }
+                    Text("Overdue by \(prediction.minutesOverdue(at: now)) min")
+                        .font(.system(size: 56, weight: .heavy, design: .rounded))
+                        .monospacedDigit().contentTransition(.numericText())
+                    Text(overdueSubtext(prediction, overtired: overtired, now: now))
                         .font(.footnote.weight(.medium))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
                 }
 
-                if status != .overtired {
-                    Text("Recommended ~\(CountdownFormatter.clock(prediction.recommendedStart)) (\(CountdownFormatter.clock(prediction.earliestStart)) – \(CountdownFormatter.clock(prediction.latestStart)))")
+                if !overdue {
+                    Text("Ideal ~\(CountdownFormatter.clock(prediction.recommendedStart)) (\(CountdownFormatter.clock(prediction.earliestStart)) – \(CountdownFormatter.clock(prediction.latestStart)))")
                         .font(.footnote).opacity(0.75).multilineTextAlignment(.center)
                 }
                 if let lastEnded = store.lastCompletedSleep?.endedAt {

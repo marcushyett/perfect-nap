@@ -51,6 +51,20 @@ final class BedtimePlannerTests: XCTestCase {
         XCTAssertNil(plan, "With no naps remaining there's nothing to plan.")
     }
 
+    func testRecommendedCanBeInThePastWhenOverdue() {
+        // Woke 5h ago (way past the ~3h typical window) — the recommended nap time should sit in the
+        // PAST so the app can report "overdue by X", not be dragged forward to `now` (the bug that
+        // showed "overdue by 0").
+        let lastWake = today(10, 0)
+        let now = today(15, 0)
+        let plan = BedtimePlanner.plan(
+            targetBedtime: today(19, 0), now: now, lastWake: lastWake,
+            profile: profile, adaptationFactor: 1.0, completedNapsToday: 1
+        )
+        XCTAssertNotNil(plan)
+        XCTAssertLessThan(plan!.recommendedNapStart, now, "Recommended start must be allowed in the past once overdue.")
+    }
+
     func testMultipleNapsSpaceBackFromBedtime() {
         let target = today(19, 0)
         let plan = BedtimePlanner.plan(
