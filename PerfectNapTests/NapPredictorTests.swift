@@ -49,6 +49,19 @@ final class NapPredictorTests: XCTestCase {
         XCTAssertTrue(prediction!.isOverdue, "A 6-hour-old wake should be flagged overdue at 4 months.")
     }
 
+    func testOverdueReportedEvenWhenAWakeIsLongEnoughToInferAMissedNap() {
+        // 9h since last wake — well past the skipped-nap threshold. The prediction must still report
+        // overdue (overtired) rather than hiding it behind an assumed unlogged nap.
+        let ctx = makeContext()
+        let now = Date.now
+        let endedHoursAgo = now.addingTimeInterval(-9 * 3600)
+        let session = NapSession.create(in: ctx, startedAt: endedHoursAgo.addingTimeInterval(-3600), endedAt: endedHoursAgo, kind: .nap)
+        let p = NapPredictor(baby: baby(ctx, monthsOld: 9), now: now).predict(lastSleep: session, napsToday: [])!
+        XCTAssertTrue(p.isOverdue)
+        XCTAssertLessThan(p.recommendedStart, now, "Recommended time sits in the past — genuinely overdue.")
+        XCTAssertEqual(p.status(at: now), .overtired)
+    }
+
     func testShortNapShortensNextWindow() {
         let ctx = makeContext()
         let now = Date.now

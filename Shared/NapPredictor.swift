@@ -88,26 +88,20 @@ struct NapPredictor {
     ) -> NapPrediction? {
         let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
 
-        var anchorEnd: Date
+        let anchorEnd: Date
         let position: WindowPosition
         let napQualityFactor: Double
         let isSynthetic: Bool
-        var inferredMissedNapAt: Date?
 
         if let last = lastSleep, let endedAt = last.endedAt {
+            // Always anchor from the real last wake — so an overdue/overtired baby is reported as
+            // such, not hidden behind an assumed nap. If a nap really was missed, the user backdates
+            // it via the "did you forget to log a nap?" nudge (SkippedNapDetector powers that
+            // separately), which then re-anchors from real data.
             anchorEnd = endedAt
             position = currentPosition(lastSleep: last, napsToday: napsToday, profile: profile)
             napQualityFactor = napQualityAdjustment(lastSleep: last, profile: profile)
             isSynthetic = false
-
-            // If they've been "awake" implausibly long with no nap logged, assume an unlogged nap and
-            // predict from there rather than reporting a many-hour overdue window.
-            if let inferred = SkippedNapDetector.detect(
-                lastWake: endedAt, now: now, profile: profile, adaptationFactor: baby.adaptationFactor
-            ) {
-                anchorEnd = inferred.likelyEnd
-                inferredMissedNapAt = inferred.likelyStart
-            }
         } else {
             // No prior sleep recorded — anchor the first wake window from now so the user always
             // sees a countdown. Position defaults to mid-day so age-typical baseline applies.
@@ -147,10 +141,6 @@ struct NapPredictor {
             lastNightTotalSeconds: lastNightTotalSeconds,
             isSynthetic: isSynthetic
         )
-
-        if let missedAt = inferredMissedNapAt {
-            rationale = "Assuming an unlogged nap around \(clockString(missedAt)) (you'd been awake longer than typical) — predicting from there. " + rationale
-        }
 
         var finalRecommended = recommended
         var finalEarliest = earliest
