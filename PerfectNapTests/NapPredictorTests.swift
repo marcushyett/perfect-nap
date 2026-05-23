@@ -90,6 +90,27 @@ final class NapPredictorTests: XCTestCase {
         XCTAssertGreaterThan(highLoad, lowLoad, "More day sleep banked → window stretched toward bedtime.")
     }
 
+    func testSleepDebtFromShortNapsPullsWindowEarlier() {
+        // Same last nap, but a day of SHORT naps (sleep debt) vs full naps → shorter window so the
+        // overtired point comes sooner.
+        let ctx = makeContext()
+        let now = Date.now
+        let endedAt = now.addingTimeInterval(-5 * 60)
+        let last = NapSession.create(in: ctx, startedAt: endedAt.addingTimeInterval(-60 * 60), endedAt: endedAt, kind: .nap)
+        let shortDay = (1...3).map { i -> NapSession in
+            let e = now.addingTimeInterval(Double(-i) * 2.5 * 3600)
+            return NapSession.create(in: ctx, startedAt: e.addingTimeInterval(-25 * 60), endedAt: e, kind: .nap) // 25-min naps
+        }
+        let fullDay = (1...3).map { i -> NapSession in
+            let e = now.addingTimeInterval(Double(-i) * 2.5 * 3600)
+            return NapSession.create(in: ctx, startedAt: e.addingTimeInterval(-90 * 60), endedAt: e, kind: .nap) // 90-min naps
+        }
+        let p = NapPredictor(baby: baby(ctx, monthsOld: 6), now: now)
+        let debtW = p.predict(lastSleep: last, napsToday: shortDay)!.usedWindowMinutes
+        let restedW = p.predict(lastSleep: last, napsToday: fullDay)!.usedWindowMinutes
+        XCTAssertLessThan(debtW, restedW, "Short naps all day → sleep debt → window pulls earlier (overtired sooner).")
+    }
+
     func testShortNapShortensNextWindow() {
         let ctx = makeContext()
         let now = Date.now

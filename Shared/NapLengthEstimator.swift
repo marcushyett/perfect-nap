@@ -50,6 +50,14 @@ enum NapLengthEstimator {
         let consistencyFactor = max(0.0, 1.0 - cv)
         let confidence = min(0.95, max(0.1, sampleFactor * consistencyFactor))
 
-        return NapLengthEstimate(minutes: max(15, Int(mean.rounded())), confidence: confidence)
+        // With a strong observed pattern, trust it (even a habitual mid-cycle short-napper). With
+        // little data, lean on the cycle-aligned prior — babies surface/wake at cycle ends, so a
+        // natural nap is ~1, 2 or 3 cycles.
+        guard confidence < 0.5 else {
+            return NapLengthEstimate(minutes: max(15, Int(mean.rounded())), confidence: confidence)
+        }
+        let cycle = Double(profile.sleepCycleMinutes)
+        let cycles = max(1, (mean / cycle).rounded())
+        return NapLengthEstimate(minutes: max(15, Int((cycles * cycle).rounded())), confidence: confidence)
     }
 }

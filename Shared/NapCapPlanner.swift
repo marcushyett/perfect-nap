@@ -48,6 +48,14 @@ enum NapCapPlanner {
         guard let binding = candidates.min(by: { $0.0 < $1.0 }) else { return nil }
         // Don't suggest waking before the nap is restorative (~one sleep cycle).
         let floor = napStart.addingTimeInterval(30 * 60)
-        return WakeSuggestion(wakeBy: max(binding.0, floor), reason: binding.1)
+        let capped = max(binding.0, floor)
+
+        // Snap to a sleep-cycle boundary so we wake them at a cycle end, not mid-cycle (groggy).
+        // Round the nap length DOWN to whole cycles within the cap (≥1 cycle).
+        let cycle = Double(profile.sleepCycleMinutes)
+        let capMinutes = capped.timeIntervalSince(napStart) / 60
+        let cycles = max(1, (capMinutes / cycle).rounded(.down))
+        let alignedMinutes = min(capMinutes, cycles * cycle)
+        return WakeSuggestion(wakeBy: napStart.addingTimeInterval(alignedMinutes * 60), reason: binding.1)
     }
 }

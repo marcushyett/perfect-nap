@@ -237,3 +237,19 @@ enum WakeWindowTable {
         return profiles.last!
     }
 }
+
+extension AgeProfile {
+    /// Approximate sleep-cycle length for the age. Infant cycles run ~50 min and lengthen toward the
+    /// adult ~90 min through early childhood; babies surface and wake most easily at a cycle
+    /// boundary, so wake predictions and wake suggestions snap to these. (Grigg-Damberger 2016 on
+    /// infant sleep architecture; Jenni & Carskadon; Mindell & Owens.)
+    var sleepCycleMinutes: Int {
+        switch maxAgeDays {
+        case ..<91: return 50      // 0–3 months
+        case ..<366: return 55     // 3–12 months
+        case ..<731: return 65     // 12–24 months
+        case ..<1096: return 75    // 2–3 years
+        default: return 85         // 3+ years
+        }
+    }
+}

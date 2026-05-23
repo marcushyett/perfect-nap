@@ -120,8 +120,9 @@ struct NapPredictor {
         )
         let adaptation = clampedAdaptation(baby.adaptationFactor)
         let dayLoad = dayLoadFactor(napsToday: napsToday, profile: profile)
+        let sleepDebt = sleepDebtFactor(napsToday: napsToday, profile: profile)
 
-        let combined = positionFactor * napQualityFactor * nightFactor * adaptation * dayLoad
+        let combined = positionFactor * napQualityFactor * nightFactor * adaptation * dayLoad * sleepDebt
 
         let adjustedMinutes = Double(baselineMinutes) * combined
         let recommended = anchorEnd.addingTimeInterval(adjustedMinutes * 60)
@@ -141,7 +142,8 @@ struct NapPredictor {
             adjusted: Int(adjustedMinutes.rounded()),
             lastNightTotalSeconds: lastNightTotalSeconds,
             isSynthetic: isSynthetic,
-            dayLoad: dayLoad
+            dayLoad: dayLoad,
+            sleepDebt: sleepDebt
         )
 
         var finalRecommended = recommended
@@ -238,6 +240,21 @@ struct NapPredictor {
         return min(max(1.0 + 0.3 * (ratio - 1.0), 0.75), 1.2)
     }
 
+    /// Sleep-pressure / debt: if today's naps have run short (cumulative day sleep is low for the
+    /// number of naps taken), the baby carries higher residual sleep pressure and tires faster, so
+    /// the whole window — including the overtired (latest) edge — pulls earlier. This makes the
+    /// overtired warning reflect sleep debt, not just time since the last nap.
+    private func sleepDebtFactor(napsToday: [NapSession], profile: AgeProfile) -> Double {
+        let naps = napsToday.filter { $0.kind == .nap && $0.endedAt != nil }
+        guard !naps.isEmpty else { return 1.0 }
+        let avgNap = naps.reduce(0.0) { $0 + Double($1.durationMinutes) } / Double(naps.count)
+        let typical = BedtimePlanner.typicalNapMinutes(profile)
+        guard typical > 0 else { return 1.0 }
+        let ratio = avgNap / typical
+        guard ratio < 0.8 else { return 1.0 }
+        return max(0.85, 1.0 - (0.8 - ratio) * 0.4)
+    }
+
     /// Stretches the window as the day's nap total fills the age day-sleep budget — once most of the
     /// needed day sleep is banked, sleep pressure rebuilds slower and the day should wind toward
     /// bedtime rather than over-napping (complements BedtimePlanner / NapCapPlanner).
@@ -270,7 +287,8 @@ struct NapPredictor {
         adjusted: Int,
         lastNightTotalSeconds: TimeInterval?,
         isSynthetic: Bool = false,
-        dayLoad: Double = 1.0
+        dayLoad: Double = 1.0,
+        sleepDebt: Double = 1.0
     ) -> String {
         var parts: [String] = []
         if isSynthetic {
@@ -288,6 +306,9 @@ struct NapPredictor {
         }
         if dayLoad > 1.01 {
             parts.append("Lots of day sleep banked already → window stretched toward bedtime (×\(String(format: "%.2f", dayLoad))).")
+        }
+        if sleepDebt < 0.99 {
+            parts.append("Naps have run short today → sleep debt building, so the window (and overtired point) pull earlier (×\(String(format: "%.2f", sleepDebt))).")
         }
         if abs(nightFactor - 1.0) > 0.01, let seconds = lastNightTotalSeconds {
             let hours = seconds / 3600.0
