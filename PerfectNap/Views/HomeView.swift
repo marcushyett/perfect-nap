@@ -30,6 +30,15 @@ struct HomeView: View {
         return now >= bedtime.addingTimeInterval(-3.5 * 3600) && now <= bedtime.addingTimeInterval(3600)
     }
 
+    private func predictionContextLine(_ p: NapPrediction, overdue: Bool) -> String {
+        let woke = store.lastCompletedSleep?.endedAt.map { "woke \(CountdownFormatter.clock($0))" }
+        if overdue {
+            return woke ?? ""
+        }
+        let ideal = "Ideal ~\(CountdownFormatter.clock(p.recommendedStart))"
+        return [ideal, woke].compactMap { $0 }.joined(separator: " · ")
+    }
+
     private func wakeReasonText(_ reason: WakeSuggestion.Reason) -> String {
         switch reason {
         case .protectBedtime: return "to protect tonight's bedtime"
@@ -69,11 +78,10 @@ struct HomeView: View {
                     Spacer(minLength: 12)
                     centerStack(now: now)
                     Spacer()
-                    primaryButton
-                        .padding(.bottom, 16)
-                    bedtimeControl
+                    gaugedButton(now: now)
                         .padding(.bottom, 14)
-                    bottomStrip
+                    bedtimeControl
+                        .padding(.bottom, 10)
                     stopTrackingLink
                 }
                 .padding(.horizontal, 22)
@@ -313,20 +321,11 @@ struct HomeView: View {
                         .padding(.horizontal, 24)
                 }
 
-                if !overdue {
-                    Text("Ideal ~\(CountdownFormatter.clock(prediction.recommendedStart)) (\(CountdownFormatter.clock(prediction.earliestStart)) – \(CountdownFormatter.clock(prediction.latestStart)))")
-                        .font(.footnote).opacity(0.75).multilineTextAlignment(.center)
-                }
-                if let lastEnded = store.lastCompletedSleep?.endedAt {
-                    Text("Last woke at \(CountdownFormatter.clock(lastEnded))")
-                        .font(.footnote).opacity(0.6)
-                }
+                Text(predictionContextLine(prediction, overdue: overdue))
+                    .font(.footnote).opacity(0.7).multilineTextAlignment(.center)
                 if let est = store.estimatedNap {
-                    Text("This nap usually lasts ~\(durationText(est.minutes)) · \(est.confidencePercent)% confident")
-                        .font(.footnote).opacity(0.6)
-                } else {
-                    Text("Learning nap lengths — needs about a day of logs")
-                        .font(.caption).opacity(0.45)
+                    Text("Usually naps ~\(durationText(est.minutes)) · \(est.confidencePercent)% confident")
+                        .font(.footnote).opacity(0.55)
                 }
                 Button { showRationale = true; Haptics.tap() } label: {
                     Label("Why this time?", systemImage: "info.circle")
@@ -344,6 +343,67 @@ struct HomeView: View {
                     .opacity(0.7)
             }
         }
+    }
+
+    /// The start/stop button wrapped in two sleep gauges (night outer, day inner) that fill toward
+    /// the age-appropriate range — green = in range, blue = still building, orange = too much.
+    @ViewBuilder
+    private func gaugedButton(now: Date) -> some View {
+        let g = gaugeValues(now: now)
+        VStack(spacing: 12) {
+            ZStack {
+                if let g {
+                    SleepGaugeRing(fraction: g.nightFraction, color: g.nightColor, diameter: 296, lineWidth: 11)
+                    SleepGaugeRing(fraction: g.dayFraction, color: g.dayColor, diameter: 264, lineWidth: 11)
+                }
+                primaryButton
+            }
+            if let g {
+                HStack(spacing: 18) {
+                    legendDot(g.dayColor, "Day \(durationText(g.dayMinutes)) · \(g.napCount) nap\(g.napCount == 1 ? "" : "s")")
+                    legendDot(g.nightColor, "Night \(durationText(g.nightMinutes))")
+                }
+                .font(.caption).opacity(0.85)
+            }
+        }
+    }
+
+    private func legendDot(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label)
+        }
+    }
+
+    private struct GaugeValues {
+        let dayFraction: Double, nightFraction: Double
+        let dayColor: Color, nightColor: Color
+        let dayMinutes: Int, nightMinutes: Int, napCount: Int
+    }
+
+    private func gaugeValues(now: Date) -> GaugeValues? {
+        guard let baby = store.baby else { return nil }
+        let p = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let todaysNaps = store.napsToday.filter { $0.kind == .nap }
+        var dayMin = todaysNaps.reduce(0.0) { $0 + Double($1.durationMinutes) }
+        if let a = store.activeSession, a.kind == .nap { dayMin += max(0, now.timeIntervalSince(a.start) / 60) }
+        let nightMin = store.lastNightTotalSeconds / 60
+        let dayUpper = p.totalDaySleepHours.upperBound * 60, dayLower = p.totalDaySleepHours.lowerBound * 60
+        let nightUpper = p.totalNightSleepHours.upperBound * 60, nightLower = p.totalNightSleepHours.lowerBound * 60
+        return GaugeValues(
+            dayFraction: dayUpper > 0 ? dayMin / dayUpper : 0,
+            nightFraction: nightUpper > 0 ? nightMin / nightUpper : 0,
+            dayColor: sleepColor(dayMin, dayLower, dayUpper),
+            nightColor: sleepColor(nightMin, nightLower, nightUpper),
+            dayMinutes: Int(dayMin.rounded()), nightMinutes: Int(nightMin.rounded()),
+            napCount: todaysNaps.count + ((store.activeSession?.kind == .nap) ? 1 : 0)
+        )
+    }
+
+    private func sleepColor(_ actual: Double, _ lower: Double, _ upper: Double) -> Color {
+        if actual > upper { return .orange }
+        if actual >= lower { return .green }
+        return Color.blue.opacity(0.55)
     }
 
     @ViewBuilder
@@ -373,33 +433,6 @@ struct HomeView: View {
         .buttonStyle(PressButtonStyle())
     }
 
-    @ViewBuilder
-    private var bottomStrip: some View {
-        if let last = store.lastCompletedSleep, store.activeSession == nil {
-            HStack(spacing: 16) {
-                stat("Last \(last.kind == .night ? "night" : "nap")", CountdownFormatter.longString(from: last.duration))
-                Divider().frame(height: 36).opacity(0.4)
-                stat("Naps today", "\(store.napsToday.filter { $0.kind == .nap }.count)")
-                Divider().frame(height: 36).opacity(0.4)
-                stat("Day total", totalDaySleepString)
-            }
-            .padding(.bottom, 18)
-        } else {
-            EmptyView()
-        }
-    }
-
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.headline.weight(.semibold)).monospacedDigit()
-            Text(label).font(.caption).opacity(0.7)
-        }.frame(maxWidth: .infinity)
-    }
-
-    private var totalDaySleepString: String {
-        let total = store.napsToday.filter { $0.kind == .nap }.reduce(0.0) { $0 + $1.duration }
-        return CountdownFormatter.longString(from: total)
-    }
 }
 
 struct RationaleSheet: View {
@@ -421,6 +454,25 @@ struct RationaleSheet: View {
                 .foregroundStyle(.secondary)
         }
         .padding(24)
+    }
+}
+
+private struct SleepGaugeRing: View {
+    let fraction: Double
+    let color: Color
+    let diameter: CGFloat
+    let lineWidth: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(color.opacity(0.18), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: min(max(fraction, 0), 1))
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut(duration: 0.4), value: fraction)
+        }
+        .frame(width: diameter, height: diameter)
     }
 }
 

@@ -12,6 +12,9 @@ struct PerfectNapApp: App {
         LegacyMigration.runIfNeeded(into: ctx)
         DefaultSettings.applyDefaultBedtimeIfNeeded(in: ctx)
         DefaultSettings.assignOrphanNapsIfNeeded(in: ctx)
+        #if DEBUG
+        DebugSeed.seedIfRequested(into: ctx)
+        #endif
         _store = State(wrappedValue: SleepStore(context: ctx))
         #if DEBUG
         CoreDataStack.shared.initializeCloudKitSchemaForDevelopment()
@@ -24,6 +27,9 @@ struct PerfectNapApp: App {
                 .environment(store)
                 .environment(\.managedObjectContext, stack.viewContext)
                 .onAppear {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-seedSampleData") { return }
+                    #endif
                     NapNotifier.shared.requestAuthorisationIfNeeded()
                 }
         }
