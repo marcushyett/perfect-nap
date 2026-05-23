@@ -211,25 +211,37 @@ struct NapPredictor {
         )
     }
 
-    /// Only applies to the first wake window of the day. Compares last-night total sleep to the
-    /// age-expected band; short night → shorter first WW, long night → slight stretch.
-    /// Mid-day and pre-bedtime windows are unaffected (sleep pressure has already discharged).
+    /// Only applies to the first wake window of the day. Compares last night's *measured* total to the
+    /// baseline the baby needs (the age band's lower bound = the minimum healthy night), and nudges the
+    /// first nap earlier only when the night was genuinely short — gently.
+    ///
+    /// Deliberately conservative: a baby losing an hour or two to feeds is normal, so a shortfall of up
+    /// to ~2h is treated as a full night (factor 1.0). Only beyond that does it taper, and even a very
+    /// bad night bottoms out at a mild floor (×0.88) rather than the old ×0.80. An implausibly small
+    /// total (< half the needed night) is taken as incomplete logging — a missed overnight segment —
+    /// and ignored rather than penalised. Mid-day / pre-bedtime windows are unaffected (pressure has
+    /// already discharged).
+    ///
+    /// The *direction* (short night → higher morning sleep pressure → shorter first window) is grounded
+    /// in the two-process model; the tolerance and magnitudes are conservative heuristics — no study
+    /// quantifies morning-wake-window shrinkage per hour of night lost, so we err toward leaving it alone.
     private func nightQualityAdjustment(
         position: WindowPosition,
         profile: AgeProfile,
         lastNightTotalSeconds: TimeInterval?
     ) -> Double {
         guard position == .firstOfDay, let seconds = lastNightTotalSeconds, seconds > 0 else { return 1.0 }
-        let nightHours = seconds / 3600.0
-        let lower = profile.totalNightSleepHours.lowerBound
-        let upper = profile.totalNightSleepHours.upperBound
-        let deficit = lower - nightHours
-        let surplus = nightHours - upper
-        if deficit >= 2.0 { return 0.80 }
-        if deficit >= 1.0 { return 0.88 }
-        if deficit > 0.25 { return 0.93 }
-        if surplus >= 0.5 { return 1.05 }
-        return 1.0
+        let actual = seconds / 3600.0
+        let needed = profile.totalNightSleepHours.lowerBound
+        // Implausibly short total ⇒ almost certainly an unlogged overnight segment, not a real
+        // near-sleepless night. Don't penalise on bad data.
+        guard actual >= needed * 0.5 else { return 1.0 }
+        // A genuinely long night lets the morning window stretch a little.
+        if actual - profile.totalNightSleepHours.upperBound >= 1.5 { return 1.03 }
+        let shortfall = needed - actual
+        if shortfall <= 2.0 { return 1.0 }                                   // ≤2h short = a normal night (feeds etc.)
+        if shortfall <= 4.0 { return 1.0 - (shortfall - 2.0) / 2.0 * 0.08 }  // 2–4h short: 1.00 → 0.92
+        return max(0.88, 0.92 - (shortfall - 4.0) * 0.02)                    // very bad night: gentle floor 0.88
     }
 
     private func currentPosition(

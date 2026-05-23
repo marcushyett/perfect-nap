@@ -77,6 +77,31 @@ final class NapPredictorEdgeCaseTests: XCTestCase {
         XCTAssertLessThan(firstWindow, middayWindow,
             "A 6-month-old's first wake window should be shorter than the midday one.")
     }
+
+    func testShortNightFactorIsGentleAndNeedsBased() {
+        let now = Date.now
+        let c = ctx()
+        let b = baby(c, daysOld: 75)   // "2–3 months": night-need band 9–10h, typical 80, first-window ×0.90
+        let end = now.addingTimeInterval(-30 * 60)
+        let night = NapSession.create(in: c, startedAt: end.addingTimeInterval(-9 * 3600), endedAt: end, kind: .night)
+        let pred = NapPredictor(baby: b, now: now)
+        func window(_ nightHours: Double) -> Int {
+            pred.predict(lastSleep: night, napsToday: [], lastNightTotalSeconds: nightHours * 3600)!.usedWindowMinutes
+        }
+        let full = window(9.0)   // exactly the needed baseline → no adjustment
+        // The key requirement: losing an hour or two (feeds, normal variation) must NOT shorten the
+        // first window — it should read as a normal night.
+        XCTAssertEqual(window(8.0), full, "An hour short of need = normal night, no penalty.")
+        XCTAssertEqual(window(7.0), full, "Two hours short (e.g. feeds) should still be treated as a full night.")
+        // A genuinely short night nudges the first nap earlier, but only mildly (<12%).
+        let short = window(5.0)   // 4h short → ×0.92
+        XCTAssertLessThan(short, full, "A truly short night should pull the first nap a little earlier.")
+        XCTAssertGreaterThan(Double(short), Double(full) * 0.88, "Even a 4h-short night should cut less than 12%.")
+        // Implausibly small total ⇒ incomplete logging, not a real 3h night → ignored, not penalised.
+        XCTAssertEqual(window(3.0), full, "An implausibly short total is treated as incomplete logging.")
+        // A long night lets the first window stretch a touch.
+        XCTAssertGreaterThan(window(12.0), full, "A long night allows a slightly later first nap.")
+    }
 }
 
 final class SleepKindTests: XCTestCase {
