@@ -138,6 +138,38 @@ final class CoreFlowsUITests: XCTestCase {
         app.buttons["Cancel"].tap()
     }
 
+    // MARK: - sharing opens a share sheet (smoke test; the device-only hijack isn't reproducible here)
+
+    /// Smoke test: tapping "Invite partner" resolves a link and presents the ordinary share sheet
+    /// without crashing. NOTE: the real bug — iOS hijacking a CKShare *`URL`* into its "Create Link →
+    /// add people" collaboration sheet — only happens on a device with a genuine CKShare URL; the
+    /// simulator uses a fake demo URL and shows the normal sheet regardless, so this test passes for
+    /// both the buggy and fixed code and is NOT a regression guard for the hijack. It only guards
+    /// against the share sheet failing to present.
+    func testInvitePartnerShowsPlainShareSheet() {
+        let app = launch("-seedSampleData")
+        app.buttons["home.settings"].tap()
+
+        let invite = app.buttons["settings.invitePartner"]
+        var swipes = 0
+        while !invite.isHittable && swipes < 8 { app.swipeUp(); swipes += 1 }
+        XCTAssertTrue(invite.waitForExistence(timeout: 10), "Invite partner button should be reachable.")
+        invite.tap()
+
+        // The ordinary share sheet exposes the "ActivityListView" element; the collaboration sheet
+        // (the thing we're avoiding) shows a "Create Link" title + "Add People" / "Share Link".
+        let activityList = app.otherElements["ActivityListView"]
+        XCTAssertTrue(activityList.waitForExistence(timeout: 10),
+                      "Tapping invite should open the normal share sheet, not the collaboration flow.")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "share-sheet"
+        shot.lifetime = .keepAlways
+        add(shot)
+        XCTAssertFalse(app.staticTexts["Create Link"].exists, "Must not show the 'Create Link' collaboration sheet.")
+        XCTAssertFalse(app.buttons["Share Link"].exists, "Must not show the collaboration 'Share Link' step.")
+        XCTAssertFalse(app.buttons["Add People"].exists, "Must not require adding people before sharing.")
+    }
+
     // MARK: - resettle suggestion (seeded short early-wake)
 
     func testResettleSuggestionShows() {

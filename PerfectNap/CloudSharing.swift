@@ -7,7 +7,12 @@ struct ShareInvite: Identifiable {
     let id = UUID()
     let message: String
     let url: URL
-    var activityItems: [Any] { [message, url] }
+    /// We share the link as **plain text**, never as a `URL`/`CKShare` object. iOS recognises a
+    /// CKShare URL handed to `UIActivityViewController` and hijacks the flow into its own multi-step
+    /// "Create Link → add people" collaboration sheet (the thing we're trying to avoid). A plain
+    /// string is treated as ordinary text, so the recipient just gets a tappable link — which still
+    /// routes through `userDidAcceptCloudKitShareWith` when they open it.
+    var activityItems: [Any] { ["\(message)\n\(url.absoluteString)"] }
 }
 
 /// A plain one-step iOS share sheet for the invite link. Tap once → pick WhatsApp / Messages / Copy
