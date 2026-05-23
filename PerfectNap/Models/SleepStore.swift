@@ -28,6 +28,8 @@ final class SleepStore {
     private(set) var nightSleepBaseMinutes: Double = 0
     /// Projected remaining naps for the rest of today (for the timeline chart).
     private(set) var dayForecast: [ForecastNap] = []
+    /// While napping: the projected end of the current nap (for the chart's live forecast tail).
+    private(set) var activeNapProjectedEnd: Date?
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -119,6 +121,14 @@ final class SleepStore {
     func setTargetBedtime(minutesFromMidnight: Int) {
         guard let baby else { return }
         baby.targetBedtimeMinutes = Int64(max(0, minutesFromMidnight))
+        try? context.save()
+        refresh()
+    }
+
+    /// Weeks born before the due date — drives corrected age for prematurity.
+    func setWeeksPremature(_ weeks: Int) {
+        guard let baby else { return }
+        baby.weeksPremature = Int64(max(0, min(weeks, 20)))
         try? context.save()
         refresh()
     }
@@ -227,7 +237,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil; activeNapProjectedEnd = nil
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -262,14 +272,14 @@ final class SleepStore {
             if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
             let newInference = lastCompletedSleep?.endedAt.flatMap {
                 SkippedNapDetector.detect(lastWake: $0, now: .now,
-                    profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays), adaptationFactor: baby.adaptationFactor)
+                    profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays), adaptationFactor: baby.adaptationFactor)
             }
             if skippedNapInference != newInference { skippedNapInference = newInference }
             let newResettle = ResettleAdvisor.suggestion(
                 lastNapEnd: lastCompletedSleep?.endedAt,
                 lastNapMinutes: lastCompletedSleep.map { Double($0.durationMinutes) },
                 lastNapKind: lastCompletedSleep?.kind,
-                profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays),
+                profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays),
                 now: .now
             )
             if resettle != newResettle { resettle = newResettle }
@@ -284,7 +294,7 @@ final class SleepStore {
             let targetStart = activeSession?.start ?? prediction?.recommendedStart ?? .now
             let est = NapLengthEstimator.estimate(
                 naps: history, targetStart: targetStart, now: .now,
-                profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+                profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
             )
             if estimatedNap != est { estimatedNap = est }
         }
@@ -294,7 +304,7 @@ final class SleepStore {
             let sug = NapCapPlanner.suggest(
                 napStart: active.start,
                 bedtime: baby.targetBedtime(on: .now),
-                profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays),
+                profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays),
                 adaptationFactor: baby.adaptationFactor,
                 completedNapMinutesToday: todaysNaps.reduce(0.0) { $0 + Double($1.durationMinutes) },
                 completedNapsToday: todaysNaps.count
@@ -306,6 +316,14 @@ final class SleepStore {
 
         let forecast = computeForecast()
         if dayForecast != forecast { dayForecast = forecast }
+
+        if let baby, let active = activeSession, active.kind == .nap {
+            let napDur = Double(estimatedNap?.minutes ?? Int(BedtimePlanner.typicalNapMinutes(WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays))))
+            let projEnd = max(active.start.addingTimeInterval(napDur * 60), Date.now)
+            if activeNapProjectedEnd != projEnd { activeNapProjectedEnd = projEnd }
+        } else if activeNapProjectedEnd != nil {
+            activeNapProjectedEnd = nil
+        }
 
         writeSnapshotIfChanged()
         reconcileLiveActivities()
@@ -354,7 +372,7 @@ final class SleepStore {
     /// Chains the wake-window → nap pattern forward from the next predicted nap to bedtime.
     private func computeForecast() -> [ForecastNap] {
         guard let baby else { return [] }
-        let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
         let adapt = min(max(baby.adaptationFactor, 0.75), 1.25)
         let napDur = Double(estimatedNap?.minutes ?? Int(BedtimePlanner.typicalNapMinutes(profile)))
         let wakeWW = prediction.map { Double($0.usedWindowMinutes) } ?? (Double(profile.window.typicalMinutes) * adapt)

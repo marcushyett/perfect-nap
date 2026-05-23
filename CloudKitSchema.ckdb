@@ -15,6 +15,7 @@ DEFINE SCHEMA
         CD_id                   STRING QUERYABLE SEARCHABLE,
         CD_name                 STRING,
         CD_targetBedtimeMinutes INT64,
+        CD_weeksPremature       INT64,
         GRANT WRITE TO "_creator",
         GRANT READ TO "_creator"
     );

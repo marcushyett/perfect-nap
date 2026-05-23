@@ -26,7 +26,7 @@ struct AdaptiveModel {
         let awakeBefore = endingNap.start.timeIntervalSince(prevEnd) / 60.0
         guard awakeBefore > 10 else { return (baby.adaptationFactor, baby.adaptationConfidence) }
 
-        let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
 
         // Don't learn from an implausibly long wake window — it almost always means a nap was
         // forgotten, not that this baby genuinely tolerates a huge window. Letting it through would

@@ -20,12 +20,16 @@ struct DayTotal: Identifiable {
 struct TodayTimelineChart: View {
     let sessions: [NapSession]
     let forecast: [ForecastNap]
+    let activeNapProjectedEnd: Date?
+    private let now: Date
     private let dayStart: Date
     private let dayEnd: Date
 
-    init(sessions: [NapSession], forecast: [ForecastNap] = [], now: Date = .now) {
+    init(sessions: [NapSession], forecast: [ForecastNap] = [], activeNapProjectedEnd: Date? = nil, now: Date = .now) {
         self.sessions = sessions
         self.forecast = forecast
+        self.activeNapProjectedEnd = activeNapProjectedEnd
+        self.now = now
         let cal = Calendar.current
         self.dayStart = cal.startOfDay(for: now)
         self.dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? now
@@ -61,6 +65,16 @@ struct TodayTimelineChart: View {
                     BarMark(
                         xStart: .value("Start", f.start),
                         xEnd: .value("End", f.end),
+                        y: .value("Today", "")
+                    )
+                    .foregroundStyle(.orange.opacity(0.35))
+                    .cornerRadius(4)
+                }
+                // The in-progress nap's projected continuation (now → likely end), ghosted.
+                if let projEnd = activeNapProjectedEnd, projEnd > now {
+                    BarMark(
+                        xStart: .value("Start", now),
+                        xEnd: .value("End", min(projEnd, dayEnd)),
                         y: .value("Today", "")
                     )
                     .foregroundStyle(.orange.opacity(0.35))
@@ -123,7 +137,7 @@ struct WeeklyDaySleepChart: View {
         }
     }
 
-    private var profile: AgeProfile { WakeWindowTable.profile(forAgeDays: baby.ageInDays) }
+    private var profile: AgeProfile { WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays) }
     private var targetLow: Double { profile.totalDaySleepHours.lowerBound * 60 }
     private var targetHigh: Double { profile.totalDaySleepHours.upperBound * 60 }
 
@@ -223,7 +237,7 @@ struct WeeklyWakeWindowChart: View {
     }
 
     private var baseline: Int {
-        WakeWindowTable.profile(forAgeDays: baby.ageInDays).window.typicalMinutes
+        WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays).window.typicalMinutes
     }
 
     var body: some View {

@@ -408,7 +408,7 @@ struct HomeView: View {
 
     private func gaugeValues(now: Date) -> GaugeValues? {
         guard let baby = store.baby else { return nil }
-        let p = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let p = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
         var dayMin = store.dayNapBaseMinutes
         var nightMin = store.nightSleepBaseMinutes
         if let a = store.activeSession {

@@ -17,6 +17,14 @@ struct SettingsView: View {
     @State private var bedtimeTime = Calendar.current.date(from: DateComponents(hour: 19, minute: 0)) ?? .now
     @State private var babyToRemove: Baby?
     @State private var showAddBaby = false
+    @State private var weeksPremature = 0
+
+    private var correctedAgeText: String {
+        guard let baby = store.baby else { return "" }
+        let days = baby.adjustedAgeInDays
+        let months = days / 30
+        return months >= 1 ? "\(months) month\(months == 1 ? "" : "s")" : "\(days / 7) week\(days / 7 == 1 ? "" : "s")"
+    }
 
     private var liveActivityStatus: String {
         let defaults = UserDefaults(suiteName: SharedSnapshotStore.appGroupID) ?? .standard
@@ -37,6 +45,20 @@ struct SettingsView: View {
                         DatePicker("Birth date", selection: $editBirth, in: ...Date.now, displayedComponents: .date)
                             .onAppear { editBirth = baby.birthDate ?? .now }
                         Text(baby.ageDescription).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+
+                if store.baby != nil {
+                    Section {
+                        Stepper("Born \(weeksPremature) week\(weeksPremature == 1 ? "" : "s") early", value: $weeksPremature, in: 0...18)
+                            .onAppear { weeksPremature = Int(store.baby?.weeksPremature ?? 0) }
+                            .onChange(of: weeksPremature) { _, v in store.setWeeksPremature(v) }
+                    } header: {
+                        Text("Prematurity")
+                    } footer: {
+                        Text(weeksPremature > 0
+                             ? "Predictions use a corrected age of \(correctedAgeText) (chronological minus \(weeksPremature) week\(weeksPremature == 1 ? "" : "s")), per pediatric guidance through ~2 years."
+                             : "If your baby arrived early, set how many weeks early. Sleep predictions then use corrected age.")
                     }
                 }
 

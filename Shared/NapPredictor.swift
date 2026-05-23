@@ -86,7 +86,7 @@ struct NapPredictor {
         napsToday: [NapSession],
         lastNightTotalSeconds: TimeInterval? = nil
     ) -> NapPrediction? {
-        let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
 
         let anchorEnd: Date
         let position: WindowPosition

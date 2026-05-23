@@ -17,7 +17,7 @@ struct BedtimeSuggestion {
 enum BedtimeAdvisor {
     static func suggest(baby: Baby, lastSleep: NapSession?, napsToday: [NapSession], now: Date = .now) -> BedtimeSuggestion? {
         guard let last = lastSleep, last.endedAt != nil else { return nil }
-        let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
         let completedNaps = napsToday.filter { $0.kind == .nap && $0.endedAt != nil }.count
         guard completedNaps >= profile.napsPerDay.lowerBound else { return nil }
 

@@ -11,6 +11,8 @@ final class Baby: NSManagedObject, BabyProfileProviding {
     @NSManaged var adaptationConfidence: Double
     /// Target bedtime as minutes-from-midnight (e.g. 19*60+30 = 1170 for 7:30 PM). 0 = unset.
     @NSManaged var targetBedtimeMinutes: Int64
+    /// Weeks born before due date. Drives corrected age for prematurity. 0 = full term.
+    @NSManaged var weeksPremature: Int64
 
     @discardableResult
     static func create(
@@ -43,6 +45,15 @@ final class Baby: NSManagedObject, BabyProfileProviding {
         return Calendar.current.dateComponents([.day], from: birthDate, to: .now).day ?? 0
     }
     var ageInWeeks: Int { ageInDays / 7 }
+
+    /// Corrected age for prematurity (chronological − weeks early). Standard pediatric practice
+    /// corrects developmental/sleep age until ~2 years; beyond that, chronological age is used.
+    /// All sleep predictions use this; the displayed age stays chronological.
+    var adjustedAgeInDays: Int {
+        let chrono = ageInDays
+        guard weeksPremature > 0, chrono <= 730 else { return chrono }
+        return max(0, chrono - Int(weeksPremature) * 7)
+    }
     var ageInMonths: Int {
         guard let birthDate else { return 0 }
         return Calendar.current.dateComponents([.month], from: birthDate, to: .now).month ?? 0
