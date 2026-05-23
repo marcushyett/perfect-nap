@@ -97,8 +97,8 @@ final class NapPredictorEdgeCaseTests: XCTestCase {
         let short = window(5.0)   // 4h short → ×0.92
         XCTAssertLessThan(short, full, "A truly short night should pull the first nap a little earlier.")
         XCTAssertGreaterThan(Double(short), Double(full) * 0.88, "Even a 4h-short night should cut less than 12%.")
-        // Implausibly small total ⇒ incomplete logging, not a real 3h night → ignored, not penalised.
-        XCTAssertEqual(window(3.0), full, "An implausibly short total is treated as incomplete logging.")
+        // Under ~2h recorded ⇒ a forgotten/partial log, not a near-sleepless night → assume a full night.
+        XCTAssertEqual(window(1.5), full, "An almost-empty (<2h) night reads as a full night, not a penalty.")
         // A long night lets the first window stretch a touch.
         XCTAssertGreaterThan(window(12.0), full, "A long night allows a slightly later first nap.")
     }

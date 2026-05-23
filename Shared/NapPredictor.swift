@@ -233,9 +233,9 @@ struct NapPredictor {
         guard position == .firstOfDay, let seconds = lastNightTotalSeconds, seconds > 0 else { return 1.0 }
         let actual = seconds / 3600.0
         let needed = profile.totalNightSleepHours.lowerBound
-        // Implausibly short total ⇒ almost certainly an unlogged overnight segment, not a real
-        // near-sleepless night. Don't penalise on bad data.
-        guard actual >= needed * 0.5 else { return 1.0 }
+        // Under ~2h recorded ⇒ almost certainly an unrecorded or partial night (a genuine user who
+        // didn't log it fully), not a real near-sleepless night → assume a full night, don't penalise.
+        guard actual >= 2.0 else { return 1.0 }
         // A genuinely long night lets the morning window stretch a little.
         if actual - profile.totalNightSleepHours.upperBound >= 1.5 { return 1.03 }
         let shortfall = needed - actual

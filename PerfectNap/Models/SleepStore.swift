@@ -250,6 +250,21 @@ final class SleepStore {
         refresh()
     }
 
+    /// Log last night from the "didn't record the night?" nudge. Clears any sliver of a night already
+    /// on record for the period (so accepting the assumed night replaces a half-logged fragment rather
+    /// than double-counting it), then adds the night.
+    func logNight(start: Date, end: Date) {
+        guard end > start, let babyID = baby?.id else { return }
+        let earliest = Date.now.addingTimeInterval(-14 * 3600)
+        let req = NapSession.fetchRequest()
+        req.predicate = NSPredicate(format: "babyID == %@ AND kindRaw == %@ AND endedAt >= %@",
+                                    babyID as NSUUID, SleepKind.night.rawValue, earliest as NSDate)
+        for fragment in (try? context.fetch(req)) ?? [] { context.delete(fragment) }
+        NapSession.create(in: context, startedAt: start, endedAt: end, kind: .night, babyID: babyID)
+        try? context.save()
+        refresh()
+    }
+
     @discardableResult
     func splitSession(_ session: NapSession, awakeStart: Date, awakeEnd: Date) -> Bool {
         guard let plan = SleepSplit.plan(start: session.start, end: session.endedAt, awakeStart: awakeStart, awakeEnd: awakeEnd) else { return false }
@@ -388,7 +403,8 @@ final class SleepStore {
                 // story (and avoids double-nudging).
                 let profileForNudges = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
                 var newMissingNight = MissingNightDetector.detect(
-                    lastSleepKind: lastCompletedSleep?.kind, lastSleepEnd: lastCompletedSleep?.endedAt,
+                    recentNightSeconds: recentNightTotal(completed: completed),
+                    lastSleepEnd: lastCompletedSleep?.endedAt,
                     now: .now, profile: profileForNudges)
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-forceMissingNight"), newMissingNight == nil {
@@ -571,6 +587,19 @@ final class SleepStore {
         for session in completed where session.kind == .night {
             let end = session.endedAt ?? lastEnd
             if session.start >= earliest && end <= cutoff { total += session.duration }
+        }
+        return total
+    }
+
+    /// Total *recorded* night sleep that ended in roughly the last half-day (i.e. last night),
+    /// anchored to now rather than to the last logged sleep — so a day with no night logged reads as
+    /// 0, not as the night-before-last. Powers the "didn't record the night?" nudge.
+    private func recentNightTotal(completed: [NapSession]) -> TimeInterval {
+        let earliest = Date.now.addingTimeInterval(-14 * 3600)
+        var total: TimeInterval = 0
+        for session in completed where session.kind == .night {
+            guard let end = session.endedAt, end >= earliest else { continue }
+            total += session.duration
         }
         return total
     }

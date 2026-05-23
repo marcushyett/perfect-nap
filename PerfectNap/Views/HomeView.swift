@@ -171,7 +171,7 @@ struct HomeView: View {
                     note: "We've prefilled a typical night. Adjust the times to match when \(store.baby?.displayName ?? "your baby") actually slept — or just add it as-is.",
                     addLabel: "Add night"
                 ) { start, end in
-                    store.addNap(start: start, end: end, kind: .night)
+                    store.logNight(start: start, end: end)
                     showLogNight = false
                 }
                 .presentationDetents([.medium])
