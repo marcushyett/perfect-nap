@@ -20,6 +20,14 @@ struct HistoryView: View {
     @State private var editing: NapSession?
     @State private var tab: HistoryTab = .patterns
 
+    /// The fetch pulls every baby's sessions; History must show only the *selected* baby's, or a
+    /// multi-baby household sees two children's sleep mixed together. (Falls back to all if no baby
+    /// is selected, which only happens pre-onboarding when there are none anyway.)
+    private var babySessions: [NapSession] {
+        guard let id = store.baby?.id else { return Array(sessions) }
+        return sessions.filter { $0.babyID == id }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -62,7 +70,7 @@ struct HistoryView: View {
 
     @ViewBuilder
     private var patternsView: some View {
-        if sessions.isEmpty {
+        if babySessions.isEmpty {
             ContentUnavailableView(
                 "No data yet",
                 systemImage: "chart.bar.xaxis",
@@ -107,12 +115,12 @@ struct HistoryView: View {
     }
 
     private var napsLearnedFrom: Int {
-        sessions.filter { $0.kind == .nap && $0.endedAt != nil && $0.durationMinutes >= 25 }.count
+        babySessions.filter { $0.kind == .nap && $0.endedAt != nil && $0.durationMinutes >= 25 }.count
     }
 
     @ViewBuilder
     private var listView: some View {
-        if sessions.isEmpty {
+        if babySessions.isEmpty {
             ContentUnavailableView(
                 "No naps yet",
                 systemImage: "moon.zzz",
@@ -157,19 +165,19 @@ struct HistoryView: View {
         let cal = Calendar.current
         let dayStart = cal.startOfDay(for: .now)
         let earliest = dayStart.addingTimeInterval(-18 * 3600)
-        return sessions.filter { $0.start >= earliest }
+        return babySessions.filter { $0.start >= earliest }
     }
 
     private var weekSessions: [NapSession] {
         let cal = Calendar.current
         let cutoff = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: .now)) ?? .now
-        return sessions.filter { $0.start >= cutoff }
+        return babySessions.filter { $0.start >= cutoff }
     }
 
     private var grouped: [(String, [NapSession])] {
         let formatter = DateFormatter()
         formatter.dateStyle = .full
-        let dict = Dictionary(grouping: sessions) { session -> String in
+        let dict = Dictionary(grouping: babySessions) { session -> String in
             formatter.string(from: session.start)
         }
         return dict.sorted { lhs, rhs in

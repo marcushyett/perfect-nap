@@ -10,3 +10,4 @@ build/
 *.dSYM.zip
 .playwright-mcp/
 apple-signin.png
+.claude/

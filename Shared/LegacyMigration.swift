@@ -159,3 +159,7 @@ extension Baby {
 extension NapSession {
     static func fetchRequest() -> NSFetchRequest<NapSession> { NSFetchRequest<NapSession>(entityName: "NapSession") }
 }
+
+extension Trip {
+    static func fetchRequest() -> NSFetchRequest<Trip> { NSFetchRequest<Trip>(entityName: "Trip") }
+}

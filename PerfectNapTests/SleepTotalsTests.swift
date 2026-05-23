@@ -32,4 +32,26 @@ final class SleepTotalsTests: XCTestCase {
         XCTAssertEqual(night, 600, accuracy: 1, "Most recent night = 10h.")
         XCTAssertEqual(day, 90, accuracy: 1, "No nap since last night → previous day's 90 min persists.")
     }
+
+    func testEmptyHistoryIsZeroZero() {
+        let (day, night) = SleepTotals.bases([])
+        XCTAssertEqual(day, 0)
+        XCTAssertEqual(night, 0)
+    }
+
+    func testNapsWithNoNightYetCountAsDaySleep() {
+        // A baby logged this morning before any night was recorded — naps still total as day sleep.
+        let (day, night) = SleepTotals.bases([s(3, 2, .nap), s(1, 0.5, .nap)])
+        XCTAssertEqual(night, 0, "No night logged → night total is zero, not a crash.")
+        XCTAssertEqual(day, 90, accuracy: 1, "Both naps count toward day sleep.")
+    }
+
+    func testNightSpanningMidnightCountsItsFullDuration() {
+        // Night from "yesterday 22:00" to "today 06:00" = 8h, regardless of the date boundary.
+        let night = SleepTotals.Session(start: ago(10), end: ago(2), kind: .night) // 8h ending 2h ago
+        let morningNap = SleepTotals.Session(start: ago(1), end: ago(0.25), kind: .nap) // 45 min after wake
+        let (day, nightMin) = SleepTotals.bases([night, morningNap])
+        XCTAssertEqual(nightMin, 480, accuracy: 1, "A night crossing midnight still totals its full 8h.")
+        XCTAssertEqual(day, 45, accuracy: 1, "The post-wake nap is day sleep.")
+    }
 }

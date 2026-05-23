@@ -22,6 +22,7 @@ enum SleepActions {
         guard let babyID = resolveBabyID(explicitID) else { return nil }
         if let active = fetchActive(babyID: babyID, context: ctx) { return active }
 
+        TrackingState.isPaused = false   // starting a nap resumes tracking (mirrors SleepStore.startNap)
         let kind = NapSession.classify(start: date)
         let session = NapSession.create(in: ctx, startedAt: date, kind: kind, babyID: babyID)
         try? ctx.save()

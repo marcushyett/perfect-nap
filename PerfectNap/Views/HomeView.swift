@@ -13,6 +13,7 @@ struct HomeView: View {
     @State private var showAddMissedNap = false
     @State private var showBedtimeEditor = false
     @State private var showAddBaby = false
+    @State private var debugShowTrip = false
 
     private func overdueSubtext(_ prediction: NapPrediction, overtired: Bool, now: Date) -> String {
         if overtired {
@@ -93,6 +94,8 @@ struct HomeView: View {
                 Theme.background(for: mode, colorScheme: colorScheme).ignoresSafeArea()
                 VStack(spacing: 0) {
                     topBar
+                    dstBanner
+                    jetLagBanner
                     missedNapBanner
                     Spacer(minLength: 12)
                     centerStack(now: now)
@@ -109,6 +112,15 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showHistory) { HistoryView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $debugShowTrip) { TripSetupSheet(existing: store.trip) }
+        .onAppear {
+            #if DEBUG
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("-showTripSheet") { debugShowTrip = true }
+            if args.contains("-showSettings") { showSettings = true }
+            if args.contains("-showHistory") { showHistory = true }
+            #endif
+        }
         .sheet(isPresented: $showRationale) {
             if let rationale = store.prediction?.rationale {
                 RationaleSheet(rationale: rationale)
@@ -181,6 +193,62 @@ struct HomeView: View {
                 .background(.ultraThinMaterial, in: Capsule())
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private var dstBanner: some View {
+        if let dst = store.dstAdjustment, dst.shiftMinutes != 0 {
+            let mins = abs(dst.shiftMinutes)
+            let dir = dst.springsForward ? "earlier" : "later"
+            HStack(spacing: 10) {
+                Image(systemName: "clock.arrow.2.circlepath")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Clocks change \(CountdownFormatter.weekday(dst.transitionDate))")
+                        .font(.footnote.weight(.semibold))
+                    Text("Easing \(store.baby?.displayName ?? "baby")'s schedule ~\(mins) min \(dir) so the change lands gently.")
+                        .font(.caption).opacity(0.8)
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var jetLagBanner: some View {
+        if let plan = store.jetLagPlan {
+            HStack(spacing: 10) {
+                Image(systemName: jetLagIcon(plan.phase))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(plan.headline)
+                        .font(.footnote.weight(.semibold))
+                    Text(plan.detail)
+                        .font(.caption).opacity(0.85)
+                    if plan.phase != .upcoming {
+                        Label(plan.lightGuidance, systemImage: "sun.max")
+                            .font(.caption2).opacity(0.75)
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.top, 8)
+        }
+    }
+
+    private func jetLagIcon(_ phase: JetLagPlan.Phase) -> String {
+        switch phase {
+        case .upcoming: return "airplane.departure"
+        case .preAdapt: return "airplane.departure"
+        case .adapting: return "airplane.arrival"
+        case .stayOnHome: return "house"
+        case .settled: return "checkmark.circle"
+        case .adaptingHome: return "house"
         }
     }
 

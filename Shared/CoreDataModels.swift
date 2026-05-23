@@ -135,6 +135,62 @@ final class NapSession: NSManagedObject {
     }
 }
 
+@objc(Trip)
+final class Trip: NSManagedObject {
+    @NSManaged var id: UUID?
+    @NSManaged var originTZ: String?
+    @NSManaged var destinationTZ: String?
+    @NSManaged var departureDate: Date?
+    @NSManaged var arrivalDate: Date?
+    @NSManaged var returnDate: Date?
+    @NSManaged var strategyRaw: String?
+    /// True when the trip is already underway (arrival is in the past) — drives the "already landed" flow.
+    @NSManaged var alreadyLanded: Bool
+    @NSManaged var createdAt: Date?
+
+    @discardableResult
+    static func create(
+        in context: NSManagedObjectContext,
+        originTZ: String,
+        destinationTZ: String,
+        departure: Date,
+        arrival: Date,
+        returnDate: Date? = nil,
+        strategy: TripStrategy = .adaptAfter,
+        alreadyLanded: Bool = false,
+        createdAt: Date = .now
+    ) -> Trip {
+        let t = Trip(context: context)
+        t.id = UUID()
+        t.originTZ = originTZ
+        t.destinationTZ = destinationTZ
+        t.departureDate = departure
+        t.arrivalDate = arrival
+        t.returnDate = returnDate
+        t.strategyRaw = strategy.rawValue
+        t.alreadyLanded = alreadyLanded
+        t.createdAt = createdAt
+        return t
+    }
+
+    var strategy: TripStrategy {
+        get { TripStrategy(rawValue: strategyRaw ?? "") ?? .adaptAfter }
+        set { strategyRaw = newValue.rawValue }
+    }
+
+    var originTimeZone: TimeZone? { originTZ.flatMap(TimeZone.init(identifier:)) }
+    var destinationTimeZone: TimeZone? { destinationTZ.flatMap(TimeZone.init(identifier:)) }
+
+    /// The trip is over (no more easing to do) once we're well past the return date, or — for a
+    /// one-way trip — long past arrival. Used to stop surfacing a stale trip.
+    func isStale(now: Date = .now) -> Bool {
+        if let returnDate { return now > returnDate.addingTimeInterval(10 * 86_400) }
+        if let arrivalDate { return now > arrivalDate.addingTimeInterval(21 * 86_400) }
+        return false
+    }
+}
+
 // Stable identity for SwiftUI ForEach / sheet(item:). The UUID is always set in `create(...)`.
 extension NapSession: Identifiable {}
 extension Baby: Identifiable {}
+extension Trip: Identifiable {}

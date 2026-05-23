@@ -29,4 +29,10 @@ enum CountdownFormatter {
         formatter.dateStyle = .none
         return formatter.string(from: date)
     }
+
+    static func weekday(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: date)
+    }
 }

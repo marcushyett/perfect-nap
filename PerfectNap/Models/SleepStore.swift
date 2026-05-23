@@ -30,6 +30,12 @@ final class SleepStore {
     private(set) var dayForecast: [ForecastNap] = []
     /// While napping: the projected end of the current nap (for the chart's live forecast tail).
     private(set) var activeNapProjectedEnd: Date?
+    /// Set in the days around a daylight-saving change — drives the auto-adjust banner.
+    private(set) var dstAdjustment: DSTAdjustment?
+    /// Active travel trip (most recent, not stale), if any — drives the manual jet-lag flow.
+    private(set) var trip: Trip?
+    /// Current jet-lag easing for the active trip — drives the banner and the schedule shift.
+    private(set) var jetLagPlan: JetLagPlan?
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -141,6 +147,25 @@ final class SleepStore {
         refresh()
     }
 
+    // MARK: - Travel / jet lag
+
+    /// Start (or replace) a travel trip. Clears any previous trip so there's only one active at a time.
+    func createTrip(originTZ: String, destinationTZ: String, departure: Date, arrival: Date,
+                    returnDate: Date?, strategy: TripStrategy, alreadyLanded: Bool) {
+        for existing in (try? context.fetch(Trip.fetchRequest())) ?? [] { context.delete(existing) }
+        Trip.create(in: context, originTZ: originTZ, destinationTZ: destinationTZ,
+                    departure: departure, arrival: arrival, returnDate: returnDate,
+                    strategy: strategy, alreadyLanded: alreadyLanded)
+        try? context.save()
+        refresh()
+    }
+
+    func clearTrip() {
+        for existing in (try? context.fetch(Trip.fetchRequest())) ?? [] { context.delete(existing) }
+        try? context.save()
+        refresh()
+    }
+
     // MARK: - Nap actions (operate on the selected baby)
 
     func startNap(at date: Date = .now) {
@@ -245,7 +270,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil; activeNapProjectedEnd = nil
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil; activeNapProjectedEnd = nil; dstAdjustment = nil; trip = nil; jetLagPlan = nil
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -274,27 +299,10 @@ final class SleepStore {
         if dayNapBaseMinutes != bases.day { dayNapBaseMinutes = bases.day }
         if nightSleepBaseMinutes != bases.night { nightSleepBaseMinutes = bases.night }
 
-        if let baby, activeSession == nil, !TrackingState.isPaused {
-            let predictor = NapPredictor(baby: baby)
-            let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
-            let morningWake = computeMorningWake(completed: completed, profile: profile)
-            let custom = baby.customNapMinutes
-            let anchors: [Date]
-            if !custom.isEmpty {
-                let dayStart = Calendar.current.startOfDay(for: .now)
-                anchors = custom.map { dayStart.addingTimeInterval(Double($0) * 60) }
-            } else {
-                anchors = ScheduleLearner.anchors(
-                    history: completed.map { (start: $0.start, kind: $0.kind) },
-                    today: .now, morningWake: morningWake, profile: profile)
-            }
-            let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds, scheduleAnchors: anchors)
-            if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
-            let newInference = lastCompletedSleep?.endedAt.flatMap {
-                SkippedNapDetector.detect(lastWake: $0, now: .now,
-                    profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays), adaptationFactor: baby.adaptationFactor)
-            }
-            if skippedNapInference != newInference { skippedNapInference = newInference }
+        if let baby, activeSession == nil {
+            // Resettle is advice about the nap that *just ended* (was it too short to be restorative?).
+            // It's independent of whether next-nap reminders are paused — a parent who ends a nap via
+            // "Stop tracking" still needs to know they could try to resettle. So compute it regardless.
             let newResettle = ResettleAdvisor.suggestion(
                 lastNapEnd: lastCompletedSleep?.endedAt,
                 lastNapMinutes: lastCompletedSleep.map { Double($0.durationMinutes) },
@@ -303,6 +311,47 @@ final class SleepStore {
                 now: .now
             )
             if resettle != newResettle { resettle = newResettle }
+
+            if !TrackingState.isPaused {
+                let predictor = NapPredictor(baby: baby)
+                let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
+                let morningWake = computeMorningWake(completed: completed, profile: profile)
+                let custom = baby.customNapMinutes
+                var anchors: [Date]
+                if !custom.isEmpty {
+                    let dayStart = Calendar.current.startOfDay(for: .now)
+                    anchors = custom.map { dayStart.addingTimeInterval(Double($0) * 60) }
+                } else {
+                    anchors = ScheduleLearner.anchors(
+                        history: completed.map { (start: $0.start, kind: $0.kind) },
+                        today: .now, morningWake: morningWake, profile: profile)
+                }
+                // Daylight-saving easing: nudge the whole schedule in the days around the change.
+                var dst = DSTAdjuster.current()
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-forceDST") {
+                    dst = DSTAdjustment(shiftMinutes: -40, transitionDate: Calendar.current.date(byAdding: .day, value: 2, to: .now)!, springsForward: true)
+                }
+                #endif
+                if let dst { anchors = anchors.map { $0.addingTimeInterval(Double(dst.shiftMinutes) * 60) } }
+                if dstAdjustment != dst { dstAdjustment = dst }
+                // Manual jet-lag easing: shift the schedule toward the destination across the trip.
+                let activeTrip = fetchActiveTrip()
+                if trip !== activeTrip { trip = activeTrip }
+                let plan = activeTrip.flatMap { jetLagPlan(for: $0, baby: baby) }
+                if let plan { anchors = anchors.map { $0.addingTimeInterval(Double(plan.scheduleOffsetMinutes) * 60) } }
+                if jetLagPlan != plan { jetLagPlan = plan }
+                let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds, scheduleAnchors: anchors)
+                if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
+                let newInference = lastCompletedSleep?.endedAt.flatMap {
+                    SkippedNapDetector.detect(lastWake: $0, now: .now,
+                        profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays), adaptationFactor: baby.adaptationFactor)
+                }
+                if skippedNapInference != newInference { skippedNapInference = newInference }
+            } else {
+                if prediction != nil { prediction = nil }
+                if skippedNapInference != nil { skippedNapInference = nil }
+            }
         } else {
             if prediction != nil { prediction = nil }
             if skippedNapInference != nil { skippedNapInference = nil }
@@ -353,6 +402,23 @@ final class SleepStore {
         let req = Baby.fetchRequest()
         req.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
         return (try? context.fetch(req)) ?? []
+    }
+
+    /// Most recent trip that isn't stale (household-wide; a trip applies to whoever's selected).
+    private func fetchActiveTrip() -> Trip? {
+        let req = Trip.fetchRequest()
+        req.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        let trips = (try? context.fetch(req)) ?? []
+        return trips.first { !$0.isStale() }
+    }
+
+    private func jetLagPlan(for trip: Trip, baby: Baby) -> JetLagPlan? {
+        guard let origin = trip.originTimeZone, let destination = trip.destinationTimeZone,
+              let departure = trip.departureDate, let arrival = trip.arrivalDate else { return nil }
+        return JetLagPlanner.plan(
+            originTZ: origin, destinationTZ: destination,
+            departure: departure, arrival: arrival, returnDate: trip.returnDate,
+            strategy: trip.strategy, ageDays: baby.adjustedAgeInDays)
     }
 
     private func resolveSelectedBaby() -> Baby? {

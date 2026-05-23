@@ -20,6 +20,7 @@ struct SettingsView: View {
     @State private var weeksPremature = 0
     @State private var useCustomSchedule = false
     @State private var scheduleTimes: [Date] = []
+    @State private var showTripSheet = false
 
     private var defaultNapTime: Date { Calendar.current.date(bySettingHour: 12, minute: 30, second: 0, of: .now) ?? .now }
     private func time(fromMinutes m: Int) -> Date { Calendar.current.date(bySettingHour: m / 60, minute: m % 60, second: 0, of: .now) ?? .now }
@@ -163,6 +164,10 @@ struct SettingsView: View {
                     .onChange(of: scheduleTimes) { _, _ in saveSchedule() }
                 }
 
+                if store.baby != nil {
+                    travelSection
+                }
+
                 if let baby = store.baby {
                     Section("Share with a partner") {
                         switch SharingCoordinator.shared.shareState(for: baby) {
@@ -288,6 +293,34 @@ struct SettingsView: View {
             .sheet(item: $sharePackage) { pkg in
                 CloudSharingView(share: pkg.share, container: pkg.container)
                     .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showTripSheet) {
+                TripSetupSheet(existing: store.trip)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var travelSection: some View {
+        Section("Travel & jet lag") {
+            if let trip = store.trip, let origin = trip.originTimeZone, let dest = trip.destinationTimeZone {
+                HStack {
+                    Image(systemName: "airplane").foregroundStyle(.tint)
+                    Text("\(JetLagPlanner.cityName(origin)) → \(JetLagPlanner.cityName(dest))")
+                        .font(.subheadline.weight(.medium))
+                }
+                if let plan = store.jetLagPlan {
+                    Text(plan.headline).font(.footnote.weight(.medium))
+                    Text(plan.detail).font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Edit trip") { showTripSheet = true }
+                Button("End trip", role: .destructive) { store.clearTrip() }
+            } else {
+                Text("Crossing time zones? Set up a trip and we'll gently shift \(store.baby?.displayName ?? "your child")'s schedule toward your destination — before you fly or after you land.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button { showTripSheet = true } label: {
+                    Label("Plan a trip", systemImage: "airplane.departure")
+                }
             }
         }
     }

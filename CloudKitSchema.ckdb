@@ -39,6 +39,27 @@ DEFINE SCHEMA
         GRANT READ TO "_creator"
     );
 
+    RECORD TYPE CD_Trip (
+        "___createTime" TIMESTAMP,
+        "___createdBy"  REFERENCE,
+        "___etag"       STRING,
+        "___modTime"    TIMESTAMP,
+        "___modifiedBy" REFERENCE,
+        "___recordID"   REFERENCE QUERYABLE,
+        CD_alreadyLanded  INT64,
+        CD_arrivalDate    TIMESTAMP,
+        CD_createdAt      TIMESTAMP,
+        CD_departureDate  TIMESTAMP,
+        CD_destinationTZ  STRING,
+        CD_entityName     STRING QUERYABLE,
+        CD_id             STRING QUERYABLE SEARCHABLE,
+        CD_originTZ       STRING,
+        CD_returnDate     TIMESTAMP,
+        CD_strategyRaw    STRING,
+        GRANT WRITE TO "_creator",
+        GRANT READ TO "_creator"
+    );
+
     RECORD TYPE Users (
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,

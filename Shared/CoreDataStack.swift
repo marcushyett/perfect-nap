@@ -163,7 +163,24 @@ final class CoreDataStack {
             attr("babyID", .UUIDAttributeType),
         ]
 
-        model.entities = [baby, nap]
+        // Travel / jet-lag trip. Additive + all-optional (no migration or data loss for existing
+        // users; absence of a Trip simply means "not travelling").
+        let trip = NSEntityDescription()
+        trip.name = "Trip"
+        trip.managedObjectClassName = "Trip"
+        trip.properties = [
+            attr("id", .UUIDAttributeType),
+            attr("originTZ", .stringAttributeType),
+            attr("destinationTZ", .stringAttributeType),
+            attr("departureDate", .dateAttributeType),
+            attr("arrivalDate", .dateAttributeType),
+            attr("returnDate", .dateAttributeType),
+            attr("strategyRaw", .stringAttributeType),
+            attr("alreadyLanded", .booleanAttributeType, optional: false, default: false),
+            attr("createdAt", .dateAttributeType),
+        ]
+
+        model.entities = [baby, nap, trip]
         return model
     }
 
