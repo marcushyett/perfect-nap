@@ -30,6 +30,13 @@ struct HomeView: View {
         return now >= bedtime.addingTimeInterval(-3.5 * 3600) && now <= bedtime.addingTimeInterval(3600)
     }
 
+    private func wakeReasonText(_ reason: WakeSuggestion.Reason) -> String {
+        switch reason {
+        case .protectBedtime: return "to protect tonight's bedtime"
+        case .balanceDaySleep: return "to keep day sleep balanced"
+        }
+    }
+
     private func durationText(_ minutes: Int) -> String {
         let h = minutes / 60, m = minutes % 60
         if h > 0 && m > 0 { return "\(h)h \(m)m" }
@@ -261,6 +268,19 @@ struct HomeView: View {
                 if session.kind == .nap, let est = store.estimatedNap {
                     Text("Usually naps ~\(durationText(est.minutes)) · \(est.confidencePercent)% confident")
                         .font(.footnote).opacity(0.6)
+                }
+                if session.kind == .nap, let sug = store.wakeSuggestion {
+                    if now >= sug.wakeBy {
+                        Label("Time to wake — \(wakeReasonText(sug.reason))", systemImage: "sun.max.fill")
+                            .font(.footnote.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12).padding(.vertical, 5)
+                            .background(Color.orange.opacity(0.9), in: Capsule())
+                            .padding(.top, 4)
+                    } else {
+                        Text("Suggested wake by ~\(CountdownFormatter.clock(sug.wakeBy)) \(wakeReasonText(sug.reason))")
+                            .font(.footnote).opacity(0.6)
+                    }
                 }
             }
         } else if let prediction = store.prediction {

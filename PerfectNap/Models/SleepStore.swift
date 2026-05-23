@@ -18,6 +18,8 @@ final class SleepStore {
     /// Estimated length of the next/current nap (by time of day, with a confidence score). nil until
     /// there's at least a day of history.
     private(set) var estimatedNap: NapLengthEstimate?
+    /// During an active nap: suggested time to wake to protect bedtime / day-sleep balance.
+    private(set) var wakeSuggestion: WakeSuggestion?
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -217,7 +219,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -260,6 +262,21 @@ final class SleepStore {
                 profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays)
             )
             if estimatedNap != est { estimatedNap = est }
+        }
+
+        if let baby, let active = activeSession, active.kind == .nap {
+            let todaysNaps = napsToday.filter { $0.kind == .nap }
+            let sug = NapCapPlanner.suggest(
+                napStart: active.start,
+                bedtime: baby.targetBedtime(on: .now),
+                profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays),
+                adaptationFactor: baby.adaptationFactor,
+                completedNapMinutesToday: todaysNaps.reduce(0.0) { $0 + Double($1.durationMinutes) },
+                completedNapsToday: todaysNaps.count
+            )
+            if wakeSuggestion != sug { wakeSuggestion = sug }
+        } else if wakeSuggestion != nil {
+            wakeSuggestion = nil
         }
 
         writeSnapshotIfChanged()
