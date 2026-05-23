@@ -148,6 +148,7 @@ final class CoreDataStack {
             attr("adaptationConfidence", .doubleAttributeType, optional: false, default: 0.0),
             attr("targetBedtimeMinutes", .integer64AttributeType, optional: false, default: 0),
             attr("weeksPremature", .integer64AttributeType, optional: false, default: 0),
+            attr("customScheduleMinutes", .stringAttributeType),
         ]
 
         let nap = NSEntityDescription()

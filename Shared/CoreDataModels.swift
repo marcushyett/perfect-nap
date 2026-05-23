@@ -13,6 +13,9 @@ final class Baby: NSManagedObject, BabyProfileProviding {
     @NSManaged var targetBedtimeMinutes: Int64
     /// Weeks born before due date. Drives corrected age for prematurity. 0 = full term.
     @NSManaged var weeksPremature: Int64
+    /// User-set custom nap schedule as comma-separated minutes-from-midnight (e.g. "570,840" =
+    /// 9:30 & 14:00). Empty/nil = automatic (learned-from-history / age schedule).
+    @NSManaged var customScheduleMinutes: String?
 
     @discardableResult
     static func create(
@@ -32,6 +35,12 @@ final class Baby: NSManagedObject, BabyProfileProviding {
     }
 
     var displayName: String { name ?? "Baby" }
+
+    /// Custom schedule nap start times as minutes-from-midnight (sorted), or [] for automatic.
+    var customNapMinutes: [Int] {
+        get { (customScheduleMinutes ?? "").split(separator: ",").compactMap { Int($0) }.sorted() }
+        set { customScheduleMinutes = newValue.isEmpty ? nil : newValue.sorted().map(String.init).joined(separator: ",") }
+    }
 
     /// Target bedtime as a time-of-day today, or nil if unset.
     func targetBedtime(on day: Date = .now, calendar: Calendar = .current) -> Date? {

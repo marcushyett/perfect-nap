@@ -33,6 +33,16 @@ final class PrematurityTests: XCTestCase {
         XCTAssertEqual(b.adjustedAgeInDays, b.ageInDays, "No correction past ~2 years.")
     }
 
+    func testCustomScheduleRoundTrips() {
+        let b = baby(ageDays: 300, weeksEarly: 0)
+        XCTAssertTrue(b.customNapMinutes.isEmpty, "Default is no custom schedule (automatic).")
+        b.customNapMinutes = [840, 570] // 14:00, 09:30 — set unsorted
+        XCTAssertEqual(b.customNapMinutes, [570, 840], "Stored sorted.")
+        XCTAssertEqual(b.customScheduleMinutes, "570,840")
+        b.customNapMinutes = []
+        XCTAssertNil(b.customScheduleMinutes, "Empty clears back to automatic.")
+    }
+
     func testPreemieUsesAYoungerProfile() {
         let preemie = baby(ageDays: 180, weeksEarly: 10)   // corrected ~110d
         let term = baby(ageDays: 180, weeksEarly: 0)

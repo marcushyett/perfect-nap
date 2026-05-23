@@ -133,6 +133,14 @@ final class SleepStore {
         refresh()
     }
 
+    /// Set a custom nap schedule (nap start minutes-from-midnight); empty clears it (→ automatic).
+    func setCustomSchedule(napMinutes: [Int]) {
+        guard let baby else { return }
+        baby.customNapMinutes = napMinutes.filter { $0 >= 0 && $0 < 1440 }
+        try? context.save()
+        refresh()
+    }
+
     // MARK: - Nap actions (operate on the selected baby)
 
     func startNap(at date: Date = .now) {
@@ -270,9 +278,16 @@ final class SleepStore {
             let predictor = NapPredictor(baby: baby)
             let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
             let morningWake = computeMorningWake(completed: completed, profile: profile)
-            let anchors = ScheduleLearner.anchors(
-                history: completed.map { (start: $0.start, kind: $0.kind) },
-                today: .now, morningWake: morningWake, profile: profile)
+            let custom = baby.customNapMinutes
+            let anchors: [Date]
+            if !custom.isEmpty {
+                let dayStart = Calendar.current.startOfDay(for: .now)
+                anchors = custom.map { dayStart.addingTimeInterval(Double($0) * 60) }
+            } else {
+                anchors = ScheduleLearner.anchors(
+                    history: completed.map { (start: $0.start, kind: $0.kind) },
+                    today: .now, morningWake: morningWake, profile: profile)
+            }
             let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds, scheduleAnchors: anchors)
             if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
             let newInference = lastCompletedSleep?.endedAt.flatMap {

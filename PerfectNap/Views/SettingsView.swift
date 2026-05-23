@@ -18,6 +18,24 @@ struct SettingsView: View {
     @State private var babyToRemove: Baby?
     @State private var showAddBaby = false
     @State private var weeksPremature = 0
+    @State private var useCustomSchedule = false
+    @State private var scheduleTimes: [Date] = []
+
+    private var defaultNapTime: Date { Calendar.current.date(bySettingHour: 12, minute: 30, second: 0, of: .now) ?? .now }
+    private func time(fromMinutes m: Int) -> Date { Calendar.current.date(bySettingHour: m / 60, minute: m % 60, second: 0, of: .now) ?? .now }
+    private func minutes(from date: Date) -> Int {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: date); return (c.hour ?? 0) * 60 + (c.minute ?? 0)
+    }
+    private func defaultScheduleTimes() -> [Date] { [time(fromMinutes: 9 * 60 + 30), time(fromMinutes: 14 * 60)] }
+
+    private func loadSchedule() {
+        let mins = store.baby?.customNapMinutes ?? []
+        useCustomSchedule = !mins.isEmpty
+        scheduleTimes = mins.isEmpty ? [] : mins.map { time(fromMinutes: $0) }
+    }
+    private func saveSchedule() {
+        store.setCustomSchedule(napMinutes: useCustomSchedule ? scheduleTimes.map { minutes(from: $0) } : [])
+    }
 
     private var correctedAgeText: String {
         guard let baby = store.baby else { return "" }
@@ -107,6 +125,42 @@ struct SettingsView: View {
                     .onAppear { loadBedtime() }
                     .onChange(of: bedtimeEnabled) { _, _ in saveBedtime() }
                     .onChange(of: bedtimeTime) { _, _ in saveBedtime() }
+                }
+
+                if let baby = store.baby {
+                    Section {
+                        Toggle("Set a custom nap schedule", isOn: $useCustomSchedule)
+                        if useCustomSchedule {
+                            ForEach(scheduleTimes.indices, id: \.self) { i in
+                                HStack {
+                                    DatePicker("Nap \(i + 1)", selection: $scheduleTimes[i], displayedComponents: .hourAndMinute)
+                                    Button(role: .destructive) { scheduleTimes.remove(at: i); saveSchedule() } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                    }.buttonStyle(.borderless)
+                                }
+                            }
+                            Button {
+                                scheduleTimes.append(scheduleTimes.last?.addingTimeInterval(3 * 3600) ?? defaultNapTime)
+                                saveSchedule()
+                            } label: { Label("Add a nap time", systemImage: "plus.circle.fill") }
+                        }
+                    } header: {
+                        Text("Nap schedule")
+                    } footer: {
+                        if baby.adjustedAgeInDays < 120 {
+                            Text("⚠️ Schedules aren't usually recommended before ~4 months — wake windows fit a developing rhythm better at this age. You can still set one if you'd like.")
+                        } else if useCustomSchedule {
+                            Text("Predictions blend toward these fixed nap times (more so as \(baby.displayName) gets older).")
+                        } else {
+                            Text("Automatic — learned from \(baby.displayName)'s recent nap times.")
+                        }
+                    }
+                    .onAppear { loadSchedule() }
+                    .onChange(of: useCustomSchedule) { _, on in
+                        if on, scheduleTimes.isEmpty { scheduleTimes = defaultScheduleTimes() }
+                        saveSchedule()
+                    }
+                    .onChange(of: scheduleTimes) { _, _ in saveSchedule() }
                 }
 
                 if let baby = store.baby {

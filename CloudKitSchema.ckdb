@@ -16,6 +16,7 @@ DEFINE SCHEMA
         CD_name                 STRING,
         CD_targetBedtimeMinutes INT64,
         CD_weeksPremature       INT64,
+        CD_customScheduleMinutes STRING,
         GRANT WRITE TO "_creator",
         GRANT READ TO "_creator"
     );
