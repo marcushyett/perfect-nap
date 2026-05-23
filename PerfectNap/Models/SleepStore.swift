@@ -268,7 +268,12 @@ final class SleepStore {
 
         if let baby, activeSession == nil, !TrackingState.isPaused {
             let predictor = NapPredictor(baby: baby)
-            let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds)
+            let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
+            let morningWake = computeMorningWake(completed: completed, profile: profile)
+            let anchors = ScheduleLearner.anchors(
+                history: completed.map { (start: $0.start, kind: $0.kind) },
+                today: .now, morningWake: morningWake, profile: profile)
+            let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds, scheduleAnchors: anchors)
             if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
             let newInference = lastCompletedSleep?.endedAt.flatMap {
                 SkippedNapDetector.detect(lastWake: $0, now: .now,
@@ -397,6 +402,21 @@ final class SleepStore {
             firstNapStart: firstStart, napDurationMinutes: napDur, wakeWindowMinutes: wakeWW,
             bedtime: bedtime, maxNaps: remaining
         )
+    }
+
+    /// Best estimate of this morning's wake (the schedule anchors hang off it): the most recent
+    /// night sleep's end, else today's first nap minus a first wake window, else ~7am.
+    private func computeMorningWake(completed: [NapSession], profile: AgeProfile) -> Date {
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: .now)
+        if let lastNightEnd = completed.first(where: { $0.kind == .night })?.endedAt,
+           lastNightEnd >= todayStart.addingTimeInterval(-6 * 3600) {
+            return lastNightEnd
+        }
+        if let firstNapToday = completed.filter({ $0.kind == .nap && $0.start >= todayStart }).map({ $0.start }).min() {
+            return firstNapToday.addingTimeInterval(-Double(profile.window.typicalMinutes) * profile.firstWindowFactor * 60)
+        }
+        return cal.date(bySettingHour: 7, minute: 0, second: 0, of: .now) ?? .now
     }
 
     private func computeLastNightTotal(completed: [NapSession]) -> TimeInterval {

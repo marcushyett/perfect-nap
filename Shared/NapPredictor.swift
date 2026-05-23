@@ -84,7 +84,8 @@ struct NapPredictor {
     func predict(
         lastSleep: NapSession?,
         napsToday: [NapSession],
-        lastNightTotalSeconds: TimeInterval? = nil
+        lastNightTotalSeconds: TimeInterval? = nil,
+        scheduleAnchors: [Date]? = nil
     ) -> NapPrediction? {
         let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
 
@@ -174,6 +175,23 @@ struct NapPredictor {
             }
             if plan.clampedToLimits {
                 rationale += " (Adjusted to stay within a healthy wake window.)"
+            }
+        }
+
+        // Past ~4 months, blend the (reactive) recommendation toward the day's clock schedule, with
+        // a weight that ramps up with corrected age (capped, so it never fully overrides — a baby
+        // who isn't following the schedule still gets adjusted). Clamped to stay after a minimum
+        // wake window so a "behind schedule" anchor can't suggest a nap before the last one ended.
+        if !isSynthetic, let anchors = scheduleAnchors {
+            let napIndex = napsToday.filter { $0.kind == .nap && $0.endedAt != nil }.count
+            let w = ScheduleBlend.weight(adjustedAgeDays: baby.adjustedAgeInDays)
+            if w > 0, napIndex < anchors.count {
+                let blended = ScheduleBlend.blend(reactive: finalRecommended, scheduled: anchors[napIndex], weight: w)
+                let floor = anchorEnd.addingTimeInterval(Double(profile.window.lowMinutes) * 60)
+                finalRecommended = max(blended, floor)
+                finalEarliest = min(finalEarliest, finalRecommended)
+                finalLatest = max(finalLatest, finalRecommended)
+                rationale += " Blended \(Int(w * 100))% toward the daily schedule (clock-based rhythm grows with age)."
             }
         }
 

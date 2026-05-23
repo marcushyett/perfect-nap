@@ -46,13 +46,17 @@ final class Baby: NSManagedObject, BabyProfileProviding {
     }
     var ageInWeeks: Int { ageInDays / 7 }
 
-    /// Corrected age for prematurity (chronological − weeks early). Standard pediatric practice
-    /// corrects developmental/sleep age until ~2 years; beyond that, chronological age is used.
-    /// All sleep predictions use this; the displayed age stays chronological.
+    /// Corrected age for prematurity. Per AAP practice, correction applies fully through ~12 months
+    /// and then tapers to zero by ~24 months (the difference matters hugely at 4 months, negligibly
+    /// by 2 years). All sleep predictions use this; the displayed age stays chronological.
     var adjustedAgeInDays: Int {
         let chrono = ageInDays
-        guard weeksPremature > 0, chrono <= 730 else { return chrono }
-        return max(0, chrono - Int(weeksPremature) * 7)
+        guard weeksPremature > 0 else { return chrono }
+        let fullCorrection = Int(weeksPremature) * 7
+        if chrono <= 365 { return max(0, chrono - fullCorrection) }      // full correction ≤12mo
+        if chrono >= 730 { return chrono }                               // none ≥24mo
+        let remaining = 1.0 - Double(chrono - 365) / 365.0               // linear taper 12→24mo
+        return max(0, chrono - Int(Double(fullCorrection) * remaining))
     }
     var ageInMonths: Int {
         guard let birthDate else { return 0 }
