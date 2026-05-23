@@ -30,6 +30,25 @@ struct HomeView: View {
         return now >= bedtime.addingTimeInterval(-3.5 * 3600) && now <= bedtime.addingTimeInterval(3600)
     }
 
+    @ViewBuilder
+    private func resettleView(_ r: ResettleWindow, now: Date) -> some View {
+        VStack(spacing: 10) {
+            Label("Short nap · \(durationText(r.napMinutes))", systemImage: "moon.zzz.fill")
+                .font(.subheadline.weight(.semibold)).opacity(0.85)
+            Text("Try to resettle")
+                .font(.system(size: 44, weight: .heavy, design: .rounded))
+                .multilineTextAlignment(.center)
+            Text("\(store.baby?.displayName ?? "Baby") may link another sleep cycle — give it \(CountdownFormatter.string(from: max(0, r.until.timeIntervalSince(now)))) before starting the wake window.")
+                .font(.footnote.weight(.medium))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .opacity(0.85)
+            if let lastEnded = store.lastCompletedSleep?.endedAt {
+                Text("Woke at \(CountdownFormatter.clock(lastEnded))").font(.footnote).opacity(0.55)
+            }
+        }
+    }
+
     private func predictionContextLine(_ p: NapPrediction, overdue: Bool) -> String {
         let woke = store.lastCompletedSleep?.endedAt.map { "woke \(CountdownFormatter.clock($0))" }
         if overdue {
@@ -291,6 +310,8 @@ struct HomeView: View {
                     }
                 }
             }
+        } else if let r = store.resettle, now < r.until {
+            resettleView(r, now: now)
         } else if let prediction = store.prediction {
             let overdue = now >= prediction.recommendedStart
             let overtired = now > prediction.latestStart

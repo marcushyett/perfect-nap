@@ -15,6 +15,8 @@ final class SleepStore {
     private(set) var lastNightTotalSeconds: TimeInterval = 0
     /// Set when the wake window is implausibly long — likely an unlogged nap to backdate.
     private(set) var skippedNapInference: SkippedNapInference?
+    /// Set just after an early wake from a short nap — suggest resettling before the next window.
+    private(set) var resettle: ResettleWindow?
     /// Estimated length of the next/current nap (by time of day, with a confidence score). nil until
     /// there's at least a day of history.
     private(set) var estimatedNap: NapLengthEstimate?
@@ -225,7 +227,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -263,9 +265,18 @@ final class SleepStore {
                     profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays), adaptationFactor: baby.adaptationFactor)
             }
             if skippedNapInference != newInference { skippedNapInference = newInference }
+            let newResettle = ResettleAdvisor.suggestion(
+                lastNapEnd: lastCompletedSleep?.endedAt,
+                lastNapMinutes: lastCompletedSleep.map { Double($0.durationMinutes) },
+                lastNapKind: lastCompletedSleep?.kind,
+                profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays),
+                now: .now
+            )
+            if resettle != newResettle { resettle = newResettle }
         } else {
             if prediction != nil { prediction = nil }
             if skippedNapInference != nil { skippedNapInference = nil }
+            if resettle != nil { resettle = nil }
         }
 
         if let baby {
