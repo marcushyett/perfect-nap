@@ -60,8 +60,10 @@ final class SharingCoordinator {
         let (_, share, _) = try await container.share([baby], to: nil)
         share[CKShare.SystemFieldKey.title] = "\(baby.displayName)'s sleep on Perfect Nap" as CKRecordValue
         share.publicPermission = .readWrite
-        let zone = CKRecordZone(zoneID: share.recordID.zoneID)
-        let updated = try await container.persistUpdatedShare(share, in: zone)
+        guard let privateStore = CoreDataStack.shared.privatePersistentStore else {
+            throw SharingError.linkUnavailable
+        }
+        let updated = try await container.persistUpdatedShare(share, in: privateStore)
         guard let url = updated.url else { throw SharingError.linkUnavailable }
         return url
         #endif

@@ -25,6 +25,14 @@ final class CoreDataStack {
         }
     }
 
+    /// The owner's `.private` persistent store — where records we create live and where their shares
+    /// are persisted (`persistUpdatedShare(_:in:)`).
+    var privatePersistentStore: NSPersistentStore? {
+        container.persistentStoreCoordinator.persistentStores.first {
+            $0.url?.lastPathComponent == "PerfectNap.private.sqlite"
+        }
+    }
+
     /// True when an iCloud account is available. CloudKit mirroring is only attached then —
     /// otherwise the app runs on a plain local store (and never crashes setting up CloudKit without
     /// an account, e.g. in the simulator or for users not signed into iCloud).
