@@ -26,17 +26,23 @@ enum NapCapPlanner {
         guard profile.totalDaySleepHours.upperBound > 0 else { return nil }
         let adapt = min(max(adaptationFactor, 0.75), 1.25)
 
-        // Day-sleep budget: cap so the day's total stays within the age upper bound.
         let dayBudgetMin = profile.totalDaySleepHours.upperBound * 60
-        let remaining = max(20, dayBudgetMin - completedNapMinutesToday)
-        var candidates: [(Date, WakeSuggestion.Reason)] = [(napStart.addingTimeInterval(remaining * 60), .balanceDaySleep)]
-
-        // Bedtime cap — only for the last nap of the day (when one nap remains, i.e. this one).
         let typicalNaps = max(1, (profile.napsPerDay.lowerBound + profile.napsPerDay.upperBound) / 2)
-        let isLastNap = max(1, typicalNaps - completedNapsToday) <= 1
-        if isLastNap, let bedtime {
+        let perNapShare = dayBudgetMin / Double(typicalNaps)
+
+        // A *single* nap shouldn't exceed a realistic length: ~1.5× the per-nap share of the budget,
+        // never more than what's left of the day budget, hard-capped at 3h. (The old code capped at
+        // the WHOLE remaining budget, which suggested a 7-hour nap.)
+        let remainingBudget = max(30, dayBudgetMin - completedNapMinutesToday)
+        let maxSingleNap = min(180, min(remainingBudget, perNapShare * 1.5))
+        var candidates: [(Date, WakeSuggestion.Reason)] = [(napStart.addingTimeInterval(maxSingleNap * 60), .balanceDaySleep)]
+
+        // A daytime nap must never run past bedtime; the last nap ends one pre-bed window before it.
+        if let bedtime {
+            let isLastNap = max(1, typicalNaps - completedNapsToday) <= 1
             let preBedWW = Double(profile.window.typicalMinutes) * profile.preBedtimeFactor * adapt
-            candidates.append((bedtime.addingTimeInterval(-preBedWW * 60), .protectBedtime))
+            let bedCap = isLastNap ? bedtime.addingTimeInterval(-preBedWW * 60) : bedtime
+            candidates.append((bedCap, .protectBedtime))
         }
 
         guard let binding = candidates.min(by: { $0.0 < $1.0 }) else { return nil }
