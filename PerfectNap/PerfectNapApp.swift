@@ -25,10 +25,14 @@ struct PerfectNapApp: App {
         WindowGroup {
             RootView()
                 .environment(store)
+                .environment(SubscriptionManager.shared)
                 .environment(\.managedObjectContext, stack.viewContext)
                 .onAppear {
                     #if DEBUG
+                    // Don't pop the system notification prompt during seeded demos or UI tests —
+                    // it would block automated flows (and dirty screenshots).
                     if ProcessInfo.processInfo.arguments.contains("-seedSampleData") { return }
+                    if CoreDataStack.isUITesting { return }
                     #endif
                     NapNotifier.shared.requestAuthorisationIfNeeded()
                 }
@@ -42,7 +46,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if store.baby == nil {
-                OnboardingView()
+                OnboardingFlowView(onComplete: {})
             } else {
                 HomeView()
             }

@@ -9,6 +9,12 @@ enum DebugSeed {
     @MainActor
     static func seedIfRequested(into ctx: NSManagedObjectContext) {
         let args = ProcessInfo.processInfo.arguments
+        // UI tests run on a fresh in-memory store each launch, but app-group UserDefaults persist —
+        // reset them so each test starts deterministic (no stale selected-baby or paused flag).
+        if CoreDataStack.isUITesting {
+            TrackingState.selectedBabyID = nil
+            TrackingState.isPaused = args.contains("-seedPaused")
+        }
         guard args.contains("-seedSampleData") else { return }
         guard ((try? ctx.count(for: Baby.fetchRequest())) ?? 0) == 0 else { return }
 

@@ -45,6 +45,22 @@ final class NapPredictorEdgeCaseTests: XCTestCase {
         XCTAssertTrue((0.6...1.6).contains(ratio), "Window jumped \(ratio)× across the 90-day boundary — too abrupt.")
     }
 
+    func testFreeTierPredictionIgnoresPersonalisation() {
+        // A baby with a strong learned factor: Premium applies it; free tier (personalize:false) gives
+        // a plain age-based window (baseline × position only).
+        let now = Date.now
+        let c = ctx()
+        let b = baby(c, daysOld: 270)   // 8–10 months, typical 180, firstWindowFactor 0.90
+        b.adaptationFactor = 1.25
+        let end = now.addingTimeInterval(-30 * 60)
+        let night = NapSession.create(in: c, startedAt: end.addingTimeInterval(-10 * 3600), endedAt: end, kind: .night)
+        let pred = NapPredictor(baby: b, now: now)
+        let premium = pred.predict(lastSleep: night, napsToday: [], personalize: true)!.usedWindowMinutes
+        let free = pred.predict(lastSleep: night, napsToday: [], personalize: false)!.usedWindowMinutes
+        XCTAssertLessThan(free, premium, "Free tier shouldn't apply the learned ×1.25 adaptation.")
+        XCTAssertEqual(free, Int((180.0 * 0.90).rounded()), accuracy: 2, "Free = baseline × first-window factor only.")
+    }
+
     func testFirstWakeWindowIsShorterThanMiddayForAMultiNapBaby() {
         let now = Date.now
         let end = now.addingTimeInterval(-30 * 60)
@@ -77,5 +93,43 @@ final class SleepKindTests: XCTestCase {
         XCTAssertEqual(SleepKind.classify(start: at(4, 59)), .night, "Pre-dawn is night.")
         XCTAssertEqual(SleepKind.classify(start: at(5, 0)), .nap, "05:00 is the morning — a nap.")
         XCTAssertEqual(SleepKind.classify(start: at(12, 0)), .nap)
+    }
+
+    func testEarlyBedtimeTurnsSleepIntoNight() {
+        // Bedtime 7pm: a sleep in the hour before it is an early night, not a late nap.
+        let bedtime7pm = 19 * 60
+        XCTAssertEqual(SleepKind.classify(start: at(18, 15), bedtimeMinutes: bedtime7pm), .night,
+                       "Falling asleep 45 min before a 7pm bedtime = early night.")
+        XCTAssertEqual(SleepKind.classify(start: at(16, 30), bedtimeMinutes: bedtime7pm), .nap,
+                       "A 4:30pm sleep is still a daytime nap.")
+
+        // Earlier bedtime (6pm) moves the night boundary earlier too.
+        let bedtime6pm = 18 * 60
+        XCTAssertEqual(SleepKind.classify(start: at(17, 30), bedtimeMinutes: bedtime6pm), .night,
+                       "5:30pm with a 6pm bedtime = night.")
+        XCTAssertEqual(SleepKind.classify(start: at(16, 30), bedtimeMinutes: bedtime6pm), .nap)
+    }
+
+    func testLaterBedtimeNeverPushesTheNightStartPast7pm() {
+        // A late bedtime shouldn't make a 7:30pm sleep a "nap" — evening sleep is still night.
+        XCTAssertEqual(SleepKind.classify(start: at(19, 30), bedtimeMinutes: 20 * 60 + 30), .night)
+    }
+
+    func testNoBedtimeFallsBackToDefaultThreshold() {
+        XCTAssertEqual(SleepKind.classify(start: at(18, 15), bedtimeMinutes: 0), .nap, "No bedtime → 7pm default.")
+        XCTAssertEqual(SleepKind.classify(start: at(19, 30), bedtimeMinutes: nil), .night)
+    }
+
+    func testNightWakingOnlyAfterNightSleepDuringTheNight() {
+        // Woke from night sleep, and it's 2am → night waking (resettle, no nap).
+        XCTAssertTrue(SleepKind.isNightWaking(lastSleepKind: .night, now: at(2, 0), bedtimeMinutes: nil))
+        // Woke from night sleep, but it's 7am → morning, the day has started (not a night waking).
+        XCTAssertFalse(SleepKind.isNightWaking(lastSleepKind: .night, now: at(7, 0), bedtimeMinutes: nil))
+        // Woke from a nap → never a night waking, even at an odd hour.
+        XCTAssertFalse(SleepKind.isNightWaking(lastSleepKind: .nap, now: at(2, 0), bedtimeMinutes: nil))
+        // No prior sleep → not a night waking.
+        XCTAssertFalse(SleepKind.isNightWaking(lastSleepKind: nil, now: at(2, 0), bedtimeMinutes: nil))
+        // Early bedtime: woke at 6:30pm from an early night → still a night waking.
+        XCTAssertTrue(SleepKind.isNightWaking(lastSleepKind: .night, now: at(18, 30), bedtimeMinutes: 19 * 60))
     }
 }

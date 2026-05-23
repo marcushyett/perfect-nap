@@ -15,7 +15,7 @@ struct NapPrediction: Equatable {
     /// Where the baby sits on the sleep-pressure gradient right now.
     func status(at now: Date = .now) -> WakeWindowStatus {
         if now < earliestStart { return .building }
-        if now <= latestStart { return .sweetSpot }
+        if now <= latestStart { return .ideal }
         return .overtired
     }
 
@@ -38,12 +38,12 @@ struct NapPrediction: Equatable {
 
 /// The sleep-pressure gradient from the two-process model. Process S (homeostatic sleep pressure /
 /// adenosine) builds with time awake; once it's high enough *and* aligned with the circadian dip the
-/// baby settles easily — the "sweet spot." Stay awake past that and the body fights fatigue with a
+/// baby settles easily — the ideal window. Stay awake past that and the body fights fatigue with a
 /// cortisol/adrenaline "second wind" (overtired), which makes settling harder and fragments the
-/// sleep that follows. (Borbély two-process model; Weissbluth; Karp; Taking Cara Babies; Huckleberry.)
+/// sleep that follows. (Borbély two-process model; Weissbluth; Karp; Taking Cara Babies.)
 enum WakeWindowStatus {
     case building     // not enough sleep pressure yet — too early
-    case sweetSpot    // pressure + circadian aligned — easiest settle
+    case ideal        // pressure + circadian aligned — easiest settle
     case overtired    // past the window — second-wind risk, hardest settle
 }
 
@@ -81,11 +81,15 @@ struct NapPredictor {
     /// `lastNightTotalSeconds` is the sum of all overnight sleep segments preceding this morning's
     /// wake-up; when the prediction is for the first wake window of the day, a short night shrinks
     /// it and a long night stretches it slightly. Pass nil if not known.
+    /// `personalize` is the Premium gate: when false (free tier) the prediction is a plain age-based
+    /// countdown — baseline × position only, with no learned adaptation, nap-quality, night, day-load,
+    /// sleep-debt, bedtime-planning or schedule-blend adjustments.
     func predict(
         lastSleep: NapSession?,
         napsToday: [NapSession],
         lastNightTotalSeconds: TimeInterval? = nil,
-        scheduleAnchors: [Date]? = nil
+        scheduleAnchors: [Date]? = nil,
+        personalize: Bool = true
     ) -> NapPrediction? {
         let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
 
@@ -101,7 +105,7 @@ struct NapPredictor {
             // separately), which then re-anchors from real data.
             anchorEnd = endedAt
             position = currentPosition(lastSleep: last, napsToday: napsToday, profile: profile)
-            napQualityFactor = napQualityAdjustment(lastSleep: last, profile: profile)
+            napQualityFactor = personalize ? napQualityAdjustment(lastSleep: last, profile: profile) : 1.0
             isSynthetic = false
         } else {
             // No prior sleep recorded — anchor the first wake window from now so the user always
@@ -114,14 +118,14 @@ struct NapPredictor {
 
         let baselineMinutes = profile.window.typicalMinutes
         let positionFactor = position.factor(profile: profile)
-        let nightFactor = nightQualityAdjustment(
+        let nightFactor = personalize ? nightQualityAdjustment(
             position: position,
             profile: profile,
             lastNightTotalSeconds: lastNightTotalSeconds
-        )
-        let adaptation = clampedAdaptation(baby.adaptationFactor)
-        let dayLoad = dayLoadFactor(napsToday: napsToday, profile: profile)
-        let sleepDebt = sleepDebtFactor(napsToday: napsToday, profile: profile)
+        ) : 1.0
+        let adaptation = personalize ? clampedAdaptation(baby.adaptationFactor) : 1.0
+        let dayLoad = personalize ? dayLoadFactor(napsToday: napsToday, profile: profile) : 1.0
+        let sleepDebt = personalize ? sleepDebtFactor(napsToday: napsToday, profile: profile) : 1.0
 
         let combined = positionFactor * napQualityFactor * nightFactor * adaptation * dayLoad * sleepDebt
 
@@ -154,7 +158,7 @@ struct NapPredictor {
         // When a target bedtime is set, plan backward from it — the bedtime anchor overrides the
         // pure forward wake-window for the *recommended* time, while the forward window stays as the
         // outer earliest/latest guardrail.
-        if !isSynthetic,
+        if personalize, !isSynthetic,
            let targetBedtime = baby.targetBedtime(on: now),
            let plan = BedtimePlanner.plan(
                targetBedtime: targetBedtime,
@@ -169,9 +173,9 @@ struct NapPredictor {
             finalLatest = max(latest, plan.recommendedNapStart)
             let bedFmt = clockString(targetBedtime)
             if plan.isLastNapBeforeBed {
-                rationale += " Bedtime-optimised: this is the last nap before your \(bedFmt) target — ending it ~\(Int((Double(profile.window.typicalMinutes) * profile.preBedtimeFactor).rounded())) min before bed hits the sweet spot."
+                rationale += " Bedtime-optimised: this is the last nap before your \(bedFmt) target — ending it ~\(Int((Double(profile.window.typicalMinutes) * profile.preBedtimeFactor).rounded())) min before bed lands in the ideal window."
             } else {
-                rationale += " Bedtime-optimised for your \(bedFmt) target: \(plan.napsRemaining) naps to go, spaced to land at the bedtime sweet spot."
+                rationale += " Bedtime-optimised for your \(bedFmt) target: \(plan.napsRemaining) naps to go, spaced to land in the ideal bedtime window."
             }
             if plan.clampedToLimits {
                 rationale += " (Adjusted to stay within a healthy wake window.)"
@@ -182,7 +186,7 @@ struct NapPredictor {
         // a weight that ramps up with corrected age (capped, so it never fully overrides — a baby
         // who isn't following the schedule still gets adjusted). Clamped to stay after a minimum
         // wake window so a "behind schedule" anchor can't suggest a nap before the last one ended.
-        if !isSynthetic, let anchors = scheduleAnchors {
+        if personalize, !isSynthetic, let anchors = scheduleAnchors {
             let napIndex = napsToday.filter { $0.kind == .nap && $0.endedAt != nil }.count
             let w = ScheduleBlend.weight(adjustedAgeDays: baby.adjustedAgeInDays)
             if w > 0, napIndex < anchors.count {
@@ -241,7 +245,7 @@ struct NapPredictor {
     }
 
     /// A short nap releases less Process-S sleep pressure → shorter next window. A long nap allows
-    /// the next window to stretch. Bands match consensus from Karp / Taking Cara Babies / Huckleberry:
+    /// the next window to stretch. Bands match consensus from Karp / Taking Cara Babies / Weissbluth:
     ///  - nap < 30 min: subtract ~30–45 min (≈ 0.75×)
     ///  - nap 30–45 min: subtract ~20–30 min (≈ 0.85×)
     ///  - nap 45–90 min: use age midpoint (1.00×)

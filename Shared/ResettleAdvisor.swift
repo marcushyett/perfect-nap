@@ -2,7 +2,7 @@ import Foundation
 
 /// When a baby wakes early from a nap (before linking enough sleep cycles), the restorative value is
 /// low and the next wake window would start under-rested. Practitioner guidance (Taking Cara Babies,
-/// Precious Little Sleep "crib hour", Huckleberry short-nap extension) is to give the baby a short
+/// Precious Little Sleep "crib hour" short-nap extension) is to give the baby a short
 /// chance to resettle and connect the next ~50-min cycle before ending the nap. After that window,
 /// accept the nap is over and fall back to the normal (shortened-for-a-short-nap) prediction.
 struct ResettleWindow: Equatable {

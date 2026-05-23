@@ -50,6 +50,25 @@ struct HomeView: View {
         }
     }
 
+    /// Night waking — they don't nap at night, so just prompt a resettle (no time, no countdown).
+    @ViewBuilder
+    private var nightWakingView: some View {
+        VStack(spacing: 10) {
+            Label("Woke in the night", systemImage: "moon.stars.fill")
+                .font(.subheadline.weight(.semibold)).opacity(0.85)
+            Text("Resettle")
+                .font(.system(size: 56, weight: .heavy, design: .rounded))
+            Text("Help \(store.baby?.displayName ?? "your baby") back to sleep — it's still night.")
+                .font(.footnote.weight(.medium))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .opacity(0.85)
+            if let lastEnded = store.lastCompletedSleep?.endedAt {
+                Text("Woke at \(CountdownFormatter.clock(lastEnded))").font(.footnote).opacity(0.55)
+            }
+        }
+    }
+
     private func predictionContextLine(_ p: NapPrediction, overdue: Bool) -> String {
         let woke = store.lastCompletedSleep?.endedAt.map { "woke \(CountdownFormatter.clock($0))" }
         if overdue {
@@ -83,7 +102,7 @@ struct HomeView: View {
     private var mode: HomeMode {
         if store.activeSession != nil { return .napping }
         guard let prediction = store.prediction else { return .noPrediction }
-        // Warning background only once truly overtired — the sweet spot stays calm.
+        // Warning background only once truly overtired — the ideal window stays calm.
         return prediction.status() == .overtired ? .overdue : .countingDown
     }
 
@@ -193,6 +212,7 @@ struct HomeView: View {
                 .background(.ultraThinMaterial, in: Capsule())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("home.bedtime")
         }
     }
 
@@ -305,9 +325,11 @@ struct HomeView: View {
                             Text(babyMenuLabel(b))
                         }
                     }
+                    .accessibilityIdentifier("babyMenu.\(b.displayName)")
                 }
                 Divider()
                 Button { showAddBaby = true } label: { Label("Add baby…", systemImage: "plus") }
+                    .accessibilityIdentifier("babyMenu.add")
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
@@ -323,17 +345,20 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("home.babySwitcher")
             Spacer()
             Button { showHistory = true } label: {
                 Image(systemName: "list.bullet.rectangle")
                     .font(.title2)
                     .padding(10)
             }
+            .accessibilityIdentifier("home.history")
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape")
                     .font(.title2)
                     .padding(10)
             }
+            .accessibilityIdentifier("home.settings")
         }
         .padding(.top, 8)
     }
@@ -378,6 +403,8 @@ struct HomeView: View {
                     }
                 }
             }
+        } else if store.isNightWaking {
+            nightWakingView
         } else if let r = store.resettle, now < r.until {
             resettleView(r, now: now)
         } else if let prediction = store.prediction {
@@ -496,6 +523,7 @@ struct HomeView: View {
     @ViewBuilder
     private var primaryButton: some View {
         let isActive = store.activeSession != nil
+        let endLabel = store.activeSession?.kind == .night ? "Wake up" : "Pause nap"
         Button {
             if isActive {
                 Haptics.success()
@@ -515,9 +543,10 @@ struct HomeView: View {
                     .foregroundStyle(isActive ? Color(red: 0.20, green: 0.18, blue: 0.45) : .white)
                     .offset(x: isActive ? 0 : 5)
             }
-            .accessibilityLabel(isActive ? "Pause nap" : "Start nap")
+            .accessibilityLabel(isActive ? endLabel : "Start nap")
         }
         .buttonStyle(PressButtonStyle())
+        .accessibilityIdentifier("home.primaryButton")
     }
 
 }
@@ -536,7 +565,7 @@ struct RationaleSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()
-            Text("Grounded in the AAP/AASM sleep duration consensus, the two-process sleep model, and practitioner ranges from Karp, Weissbluth, Taking Cara Babies, and Huckleberry. See Settings → Sources.")
+            Text("Grounded in the AAP/AASM sleep duration consensus, the two-process sleep model, and practitioner ranges from Karp, Weissbluth, and Taking Cara Babies. See Settings → Sources.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -586,6 +615,7 @@ struct AddBabySheet: View {
             Form {
                 Section("Baby") {
                     TextField("Name", text: $name).textInputAutocapitalization(.words)
+                        .accessibilityIdentifier("addBaby.name")
                     DatePicker("Birth date", selection: $birthDate, in: ...Date.now, displayedComponents: .date)
                 }
             }
@@ -623,7 +653,7 @@ struct BedtimeEditorSheet: View {
                         DatePicker("Target bedtime", selection: $time, displayedComponents: .hourAndMinute)
                     }
                 } footer: {
-                    Text("Naps are timed backward from this so the day lands at the bedtime sweet spot — late enough to settle easily, early enough to avoid an overtired second wind.")
+                    Text("Naps are timed backward from this so the day lands in the ideal bedtime window — late enough to settle easily, early enough to avoid an overtired second wind.")
                 }
             }
             .navigationTitle("Bedtime")

@@ -40,18 +40,31 @@ final class SharingCoordinator {
         return .shared(participantCount: others, isOwner: isOwner)
     }
 
-    /// Creates (or returns) a CKShare for the baby so it can be presented in a share sheet.
-    /// The completion delivers the share + container needed by UICloudSharingController.
-    func makeShare(for baby: Baby) async throws -> (CKShare, CKContainer) {
-        if let existing = existingShare(for: baby) {
-            return (existing, CKContainer(identifier: CoreDataStack.cloudContainerID))
-        }
-        let (_, share, ckContainer) = try await container.share([baby], to: nil)
-        share[CKShare.SystemFieldKey.title] = "\(baby.displayName)'s sleep" as CKRecordValue
-        // Make it a link anyone can open + edit, so the invite can go via WhatsApp/any channel
-        // without needing the partner's Apple ID. The link itself is the access control.
+    enum SharingError: LocalizedError {
+        case linkUnavailable
+        var errorDescription: String? { "Couldn't create the invite link. Check your iCloud sign-in and try again." }
+    }
+
+    /// One-step invite: creates (or reuses) a **public read-write** CKShare for the baby and returns
+    /// its link. The link itself is the access control — anyone who opens it joins and can view + log,
+    /// so it can be sent through *any* channel (WhatsApp, Messages, …) with no Apple-ID lookup and no
+    /// per-person invite step. We persist `publicPermission` via `persistUpdatedShare` so the URL is
+    /// materialised before we hand it to the share sheet.
+    func shareURL(for baby: Baby) async throws -> URL {
+        #if targetEnvironment(simulator)
+        // CloudKit is disabled in the simulator (unsigned, no entitlement) — return a demo link so the
+        // share-sheet UX is still exercisable. Real links are produced on device.
+        return URL(string: "https://www.icloud.com/share/perfectnap-demo")!
+        #else
+        if let existing = existingShare(for: baby), let url = existing.url { return url }
+        let (_, share, _) = try await container.share([baby], to: nil)
+        share[CKShare.SystemFieldKey.title] = "\(baby.displayName)'s sleep on Perfect Nap" as CKRecordValue
         share.publicPermission = .readWrite
-        return (share, ckContainer)
+        let zone = CKRecordZone(zoneID: share.recordID.zoneID)
+        let updated = try await container.persistUpdatedShare(share, in: zone)
+        guard let url = updated.url else { throw SharingError.linkUnavailable }
+        return url
+        #endif
     }
 
     /// Stop sharing entirely (owner) — removes the share so the partner loses access.

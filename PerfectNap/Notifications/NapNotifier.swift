@@ -24,7 +24,7 @@ final class NapNotifier {
             id: idealId,
             date: prediction.recommendedStart,
             title: "Time for \(babyName)'s nap",
-            body: "Based on age + recent sleep, the sweet-spot window is open now."
+            body: "Based on age + recent sleep, the ideal window is open now."
         )
         if prediction.latestStart > prediction.recommendedStart {
             scheduleNotification(

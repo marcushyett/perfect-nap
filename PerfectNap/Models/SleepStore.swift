@@ -17,6 +17,9 @@ final class SleepStore {
     private(set) var skippedNapInference: SkippedNapInference?
     /// Set just after an early wake from a short nap — suggest resettling before the next window.
     private(set) var resettle: ResettleWindow?
+    /// True when the baby has woken from night sleep but it's still night — they don't nap at night,
+    /// so the UI shows a simple "resettle" (no nap timing) rather than a next-nap countdown.
+    private(set) var isNightWaking: Bool = false
     /// Estimated length of the next/current nap (by time of day, with a confidence score). nil until
     /// there's at least a day of history.
     private(set) var estimatedNap: NapLengthEstimate?
@@ -36,6 +39,12 @@ final class SleepStore {
     private(set) var trip: Trip?
     /// Current jet-lag easing for the active trip — drives the banner and the schedule shift.
     private(set) var jetLagPlan: JetLagPlan?
+
+    /// Premium unlocks the smart features. True if this user subscribes (or is a complimentary
+    /// tester/dev build), OR the selected baby was shared by a Premium owner (one sub per family).
+    var isPremium: Bool {
+        SubscriptionManager.shared.isPremium || (baby?.ownerHasPremium ?? false)
+    }
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -83,9 +92,14 @@ final class SleepStore {
     }
 
     /// Creates a new baby (bedtime optimisation on by default) and selects it.
+    /// Free tier is limited to one baby; Premium unlocks multiple. (The first baby is always allowed.)
+    var canAddBaby: Bool { isPremium || babies.isEmpty }
+
     func addBaby(name: String, birthDate: Date) {
+        guard canAddBaby else { return }
         let new = Baby.create(in: context, name: name.isEmpty ? "Baby" : name, birthDate: birthDate)
         new.targetBedtimeMinutes = Int64(SleepStore.defaultBedtimeMinutes)
+        new.ownerHasPremium = SubscriptionManager.shared.isPremium
         try? context.save()
         TrackingState.selectedBabyID = new.id
         refresh()
@@ -171,7 +185,7 @@ final class SleepStore {
     func startNap(at date: Date = .now) {
         guard let babyID = baby?.id, activeSession == nil else { return }
         TrackingState.isPaused = false
-        let kind = NapSession.classify(start: date)
+        let kind = NapSession.classify(start: date, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0))
         NapSession.create(in: context, startedAt: date, kind: kind, babyID: babyID)
         try? context.save()
         refresh()
@@ -208,7 +222,7 @@ final class SleepStore {
     func adjustActiveStart(to date: Date) {
         guard let session = activeSession else { return }
         session.startedAt = date
-        session.kind = NapSession.classify(start: date)
+        session.kind = NapSession.classify(start: date, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0))
         try? context.save()
         refresh()
     }
@@ -229,7 +243,7 @@ final class SleepStore {
 
     func addNap(start: Date, end: Date, kind: SleepKind? = nil) {
         guard end > start, let babyID = baby?.id else { return }
-        NapSession.create(in: context, startedAt: start, endedAt: end, kind: kind ?? NapSession.classify(start: start), babyID: babyID)
+        NapSession.create(in: context, startedAt: start, endedAt: end, kind: kind ?? NapSession.classify(start: start, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0)), babyID: babyID)
         try? context.save()
         refresh()
     }
@@ -270,7 +284,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil; activeNapProjectedEnd = nil; dstAdjustment = nil; trip = nil; jetLagPlan = nil
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil; activeNapProjectedEnd = nil; dstAdjustment = nil; trip = nil; jetLagPlan = nil; isNightWaking = false
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -300,49 +314,74 @@ final class SleepStore {
         if nightSleepBaseMinutes != bases.night { nightSleepBaseMinutes = bases.night }
 
         if let baby, activeSession == nil {
-            // Resettle is advice about the nap that *just ended* (was it too short to be restorative?).
-            // It's independent of whether next-nap reminders are paused — a parent who ends a nap via
-            // "Stop tracking" still needs to know they could try to resettle. So compute it regardless.
-            let newResettle = ResettleAdvisor.suggestion(
+            let premium = isPremium
+            // The owner mirrors their Premium status onto owned babies so a shared partner inherits
+            // it (one subscription per family — travels through the CloudKit share).
+            if !isShared(baby), baby.ownerHasPremium != SubscriptionManager.shared.isPremium {
+                baby.ownerHasPremium = SubscriptionManager.shared.isPremium
+                try? context.save()
+            }
+
+            // Resettle (Premium) — advice about the nap that just ended, independent of pause state.
+            let newResettle = premium ? ResettleAdvisor.suggestion(
                 lastNapEnd: lastCompletedSleep?.endedAt,
                 lastNapMinutes: lastCompletedSleep.map { Double($0.durationMinutes) },
                 lastNapKind: lastCompletedSleep?.kind,
                 profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays),
                 now: .now
-            )
+            ) : nil
             if resettle != newResettle { resettle = newResettle }
+
+            // Night waking: woke from night sleep while it's still night → simple resettle, no nap.
+            var nightWaking = SleepKind.isNightWaking(
+                lastSleepKind: lastCompletedSleep?.kind, now: .now,
+                bedtimeMinutes: Int(baby.targetBedtimeMinutes))
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-forceNightWaking") { nightWaking = true }
+            #endif
+            if isNightWaking != nightWaking { isNightWaking = nightWaking }
 
             if !TrackingState.isPaused {
                 let predictor = NapPredictor(baby: baby)
-                let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
-                let morningWake = computeMorningWake(completed: completed, profile: profile)
-                let custom = baby.customNapMinutes
-                var anchors: [Date]
-                if !custom.isEmpty {
-                    let dayStart = Calendar.current.startOfDay(for: .now)
-                    anchors = custom.map { dayStart.addingTimeInterval(Double($0) * 60) }
+                if premium {
+                    let profile = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
+                    let morningWake = computeMorningWake(completed: completed, profile: profile)
+                    let custom = baby.customNapMinutes
+                    var anchors: [Date]
+                    if !custom.isEmpty {
+                        let dayStart = Calendar.current.startOfDay(for: .now)
+                        anchors = custom.map { dayStart.addingTimeInterval(Double($0) * 60) }
+                    } else {
+                        anchors = ScheduleLearner.anchors(
+                            history: completed.map { (start: $0.start, kind: $0.kind) },
+                            today: .now, morningWake: morningWake, profile: profile)
+                    }
+                    // Daylight-saving easing: nudge the whole schedule in the days around the change.
+                    var dst = DSTAdjuster.current()
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-forceDST") {
+                        dst = DSTAdjustment(shiftMinutes: -40, transitionDate: Calendar.current.date(byAdding: .day, value: 2, to: .now)!, springsForward: true)
+                    }
+                    #endif
+                    if let dst { anchors = anchors.map { $0.addingTimeInterval(Double(dst.shiftMinutes) * 60) } }
+                    if dstAdjustment != dst { dstAdjustment = dst }
+                    // Manual jet-lag easing: shift the schedule toward the destination across the trip.
+                    let activeTrip = fetchActiveTrip()
+                    if trip !== activeTrip { trip = activeTrip }
+                    let plan = activeTrip.flatMap { jetLagPlan(for: $0, baby: baby) }
+                    if let plan { anchors = anchors.map { $0.addingTimeInterval(Double(plan.scheduleOffsetMinutes) * 60) } }
+                    if jetLagPlan != plan { jetLagPlan = plan }
+                    let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds, scheduleAnchors: anchors)
+                    if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
                 } else {
-                    anchors = ScheduleLearner.anchors(
-                        history: completed.map { (start: $0.start, kind: $0.kind) },
-                        today: .now, morningWake: morningWake, profile: profile)
+                    // Free tier: a plain age-based countdown, with the smart schedule/travel features off.
+                    if dstAdjustment != nil { dstAdjustment = nil }
+                    if trip != nil { trip = nil }
+                    if jetLagPlan != nil { jetLagPlan = nil }
+                    let basic = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: nil, scheduleAnchors: nil, personalize: false)
+                    if prediction != basic { prediction = basic }
                 }
-                // Daylight-saving easing: nudge the whole schedule in the days around the change.
-                var dst = DSTAdjuster.current()
-                #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("-forceDST") {
-                    dst = DSTAdjustment(shiftMinutes: -40, transitionDate: Calendar.current.date(byAdding: .day, value: 2, to: .now)!, springsForward: true)
-                }
-                #endif
-                if let dst { anchors = anchors.map { $0.addingTimeInterval(Double(dst.shiftMinutes) * 60) } }
-                if dstAdjustment != dst { dstAdjustment = dst }
-                // Manual jet-lag easing: shift the schedule toward the destination across the trip.
-                let activeTrip = fetchActiveTrip()
-                if trip !== activeTrip { trip = activeTrip }
-                let plan = activeTrip.flatMap { jetLagPlan(for: $0, baby: baby) }
-                if let plan { anchors = anchors.map { $0.addingTimeInterval(Double(plan.scheduleOffsetMinutes) * 60) } }
-                if jetLagPlan != plan { jetLagPlan = plan }
-                let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds, scheduleAnchors: anchors)
-                if prediction != newPrediction { prediction = newPrediction }  // skip no-op churn → no flicker
+                // Skipped-nap nudge is a basic safety net — available on the free tier too.
                 let newInference = lastCompletedSleep?.endedAt.flatMap {
                     SkippedNapDetector.detect(lastWake: $0, now: .now,
                         profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays), adaptationFactor: baby.adaptationFactor)
@@ -356,9 +395,11 @@ final class SleepStore {
             if prediction != nil { prediction = nil }
             if skippedNapInference != nil { skippedNapInference = nil }
             if resettle != nil { resettle = nil }
+            if isNightWaking { isNightWaking = false }
         }
 
-        if let baby {
+        // Nap-length estimate, wake suggestion, and the day forecast are Premium insights.
+        if let baby, isPremium {
             let history = completed.filter { $0.kind == .nap }.map { (start: $0.start, minutes: Double($0.durationMinutes)) }
             let targetStart = activeSession?.start ?? prediction?.recommendedStart ?? .now
             let est = NapLengthEstimator.estimate(
@@ -366,9 +407,9 @@ final class SleepStore {
                 profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
             )
             if estimatedNap != est { estimatedNap = est }
-        }
+        } else if estimatedNap != nil { estimatedNap = nil }
 
-        if let baby, let active = activeSession, active.kind == .nap {
+        if isPremium, let baby, let active = activeSession, active.kind == .nap {
             let todaysNaps = napsToday.filter { $0.kind == .nap }
             let sug = NapCapPlanner.suggest(
                 napStart: active.start,
@@ -383,7 +424,7 @@ final class SleepStore {
             wakeSuggestion = nil
         }
 
-        let forecast = computeForecast()
+        let forecast = isPremium ? computeForecast() : []
         if dayForecast != forecast { dayForecast = forecast }
 
         if let baby, let active = activeSession, active.kind == .nap {
@@ -395,7 +436,8 @@ final class SleepStore {
         }
 
         writeSnapshotIfChanged()
-        reconcileLiveActivities()
+        // Live Activities are a Premium feature — free tier doesn't drive the lock-screen timer.
+        if isPremium { reconcileLiveActivities() } else { NapLiveActivityManager.shared.endAll() }
     }
 
     private func fetchBabies() -> [Baby] {
@@ -503,9 +545,15 @@ final class SleepStore {
     private func computeLastNightTotal(completed: [NapSession]) -> TimeInterval {
         guard let lastEnd = lastCompletedSleep?.endedAt else { return 0 }
         let earliest = lastEnd.addingTimeInterval(-18 * 3600)
-        return completed
-            .filter { $0.kind == .night && $0.start >= earliest && ($0.endedAt ?? lastEnd) <= lastEnd.addingTimeInterval(60) }
-            .reduce(0.0) { $0 + $1.duration }
+        let cutoff = lastEnd.addingTimeInterval(60)
+        // Explicit loop (not a filter/reduce chain) — keeps Swift's type-checker fast and avoids the
+        // "expression too complex to type-check in reasonable time" failures.
+        var total: TimeInterval = 0
+        for session in completed where session.kind == .night {
+            let end = session.endedAt ?? lastEnd
+            if session.start >= earliest && end <= cutoff { total += session.duration }
+        }
+        return total
     }
 
     private func writeSnapshotIfChanged() {

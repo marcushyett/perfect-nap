@@ -53,16 +53,10 @@ enum SleepSources {
             note: "Clinical practitioner ranges concordant with the practitioner-program consensus."
         ),
         SleepSource(
-            title: "First Year of Sleep Expectations",
-            author: "Huckleberry Labs",
-            url: URL(string: "https://huckleberrycare.com/blog/first-year-of-sleep-expectations")!,
-            note: "Large-n consumer dataset; foundation for SweetSpot® personalised predictions."
-        ),
-        SleepSource(
-            title: "SweetSpot® personalised sleep timing",
-            author: "Huckleberry Labs",
-            url: URL(string: "https://huckleberrycare.com/blog/sweetspot-your-smart-sleep-timing-companion")!,
-            note: "Uses last ~5 days of logged sleep to refine personal predictions. Perfect Nap follows the same idea via exponential moving average."
+            title: "Bedtiming / circadian timing of sleep",
+            author: "Marc Lewis & Isabela Granic",
+            url: URL(string: "https://pmc.ncbi.nlm.nih.gov/articles/PMC9540767/")!,
+            note: "Personalised prediction idea: weight recent sleep history. Perfect Nap uses an exponential moving average over the last several naps."
         ),
         SleepSource(
             title: "Critique of 'wake windows' as a clinical term",

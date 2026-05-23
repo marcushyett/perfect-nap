@@ -2,7 +2,7 @@ import Foundation
 
 /// Past ~4 months the circadian rhythm (Process C) matures and sleep consolidates, so care shifts
 /// from purely reactive wake windows toward a fairly fixed daily clock schedule (Weissbluth;
-/// Huckleberry; Taking Cara Babies move to "by the clock" naps around 4–6 months). We model the
+/// Taking Cara Babies move to "by the clock" naps around 4–6 months). We model the
 /// schedule as clock targets anchored to the morning wake, and blend the reactive wake-window
 /// prediction toward them with a weight that ramps up with (corrected) age.
 enum DaySchedule {

@@ -19,7 +19,7 @@ window has already closed. Put a baby down **too early** and they fight the crib
 tired enough; put them down **too late** and a stress-hormone "second wind" makes them fight it just
 as hard — and the sleep that follows is short and fragmented.
 
-There is a narrow **sweet spot** in between. Perfect Nap's entire job is to predict that sweet spot
+There is a narrow **ideal window** in between. Perfect Nap's entire job is to predict that ideal window
 and count you down to it.
 
 ### The science spine: the two-process model
@@ -35,7 +35,7 @@ sleep regulation** (review: PMC9540767):
   unpredictable and why clock-based schedules only start working in the second half of the first
   year.
 
-The "sweet spot" is the moment Process S is high **and** aligned with a Process-C dip. Miss it and
+The "ideal window" is the moment Process S is high **and** aligned with a Process-C dip. Miss it and
 the body fights fatigue with cortisol/adrenaline (the "overtired" second wind). Every prediction,
 warning, gauge, and travel adjustment in this app is a different lens on these two processes.
 
@@ -103,20 +103,20 @@ connects to**, and **the research**.
 - **Connects to:** feeds the Live Activity, the home countdown, notifications, the timeline chart's
   forecast, and is the fallback the schedule blend (§3.11) and bedtime planner (§3.7) adjust.
 - **Research:** AAP/AASM (Paruthi 2016) for 24h totals; Iglowstein 2003 percentile curves;
-  Weissbluth; Taking Cara Babies; Happiest Baby (Karp); Cleveland Clinic; Huckleberry. 15 age bands
+  Weissbluth; Taking Cara Babies; Happiest Baby (Karp); Cleveland Clinic. 15 age bands
   in `WakeWindowTable`.
 
-### 3.2 Sweet-spot gradient & overtired warning
+### 3.2 Ideal-window gradient & overtired warning
 
 - **Problem:** a single countdown doesn't convey *urgency* — is it fine to be 10 minutes late?
-- **User sees:** the screen shifts from calm ("building") → ready ("sweet spot") → a red "Overtired"
+- **User sees:** the screen shifts from calm ("building") → ready ("ideal window") → a red "Overtired"
   state past the window, with copy that's sharper right before bedtime.
-- **How it works:** `WakeWindowStatus` (`building` / `sweetSpot` / `overtired`) is derived from where
+- **How it works:** `WakeWindowStatus` (`building` / `ideal` / `overtired`) is derived from where
   *now* sits between `earliestStart` and `latestStart`. `minutesOverdue`/`minutesOvertired` are
   clamped to never go negative (this fixed an early "-0 min" flicker bug).
 - **Connects to:** the home background color, the Live Activity, and is pulled *earlier* by the
   sleep-debt factor so the warning reflects accumulated pressure, not just the clock.
-- **Research:** the two-process "second wind" — cortisol release past the sweet spot (Weissbluth;
+- **Research:** the two-process "second wind" — cortisol release past the ideal window (Weissbluth;
   two-process model).
 
 ### 3.3 Per-baby adaptation *(the personalization engine)*
@@ -133,7 +133,7 @@ connects to**, and **the research**.
   excluded so they can't wrongly stretch the factor.
 - **Connects to:** the learned factor multiplies into *every* prediction (§3.1) and into the bedtime
   planner. It uses corrected age (§3.13) when selecting the baseline.
-- **Research:** Huckleberry SweetSpot's "last ~5 days of sleep" personalization, implemented as an
+- **Research:** the recent-history personalisation idea "last ~5 days of sleep" personalization, implemented as an
   EMA. Bounded so personalization can never override clinical safety ranges.
 
 ### 3.4 Sleep-total gauges (day & night)
@@ -224,7 +224,7 @@ connects to**, and **the research**.
 - **Connects to:** blended into the §3.1 recommendation; receives the DST (§3.12) and jet-lag (§3.14)
   offsets so travel/clock-change shift the schedule too.
 - **Research:** Process C maturation ~4 months; practitioner schedule guidance (Taking Cara Babies,
-  Huckleberry).
+  Taking Cara Babies).
 
 ### 3.12 Daylight-saving auto-easing *(fully automatic)*
 
@@ -283,7 +283,7 @@ connects to**, and **the research**.
 - **Connects to:** takes priority over the normal countdown in the home view; after the window, §3.1
   resumes (with the short nap shortening the next window via `napQualityFactor`).
 - **Research:** "crib hour" / short-nap extension (Precious Little Sleep, Taking Cara Babies,
-  Huckleberry); cycle-linking.
+  Taking Cara Babies); cycle-linking.
 
 ### 3.16 Skipped-nap detection
 
@@ -422,7 +422,7 @@ Surfaced in-app under Settings → Sources (`PerfectNap/Sleep/SleepSources.swift
 - **Taking Cara Babies** (Cara Dumaplin) — wake windows, witching hour.
 - **Happiest Baby** (Dr. Harvey Karp) — short-nap rule.
 - **Cleveland Clinic** (Dr. Vaishal Shah) — clinical practitioner ranges.
-- **Huckleberry Labs** — first-year expectations + SweetSpot personalization (the EMA idea).
+- **Recent-history personalisation** — first-year expectations + personalization (the EMA idea).
 - **Dr. Polly Moore** — 90-minute BRAC cycle.
 - **Precious Little Sleep** (Alexis Dubief) — pragmatic ranges; crib-hour resettle.
 - **Dr. Craig Canapari** (Yale) — the "wake window isn't a clinical term" caveat.

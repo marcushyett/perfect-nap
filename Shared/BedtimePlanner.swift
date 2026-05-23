@@ -1,19 +1,19 @@
 import Foundation
 
 /// Backward nap planner: given a target bedtime, works out when the *next* nap should start so the
-/// day lands at the bedtime "sweet spot" — late enough that sleep pressure (Process S) has built for
+/// day lands in the ideal bedtime window — late enough that sleep pressure (Process S) has built for
 /// an easy bedtime, early enough to avoid the overtired second wind.
 ///
-/// Why backward from bedtime: across the practitioner programs (Huckleberry SweetSpot, Taking Cara
-/// Babies, Weissbluth) the last wake window before bed is the longest and most circadian-gated, so
-/// bedtime is anchored to the final nap's end + that window. Fixing bedtime therefore fixes the last
-/// nap's end; earlier naps space back from it by typical wake windows. Day-sleep is implicitly
-/// capped by the AAP/AASM 24-hour total (over-napping would erode the pre-bed pressure).
+/// Why backward from bedtime: across the practitioner programs (Taking Cara Babies, Weissbluth) the
+/// last wake window before bed is the longest and most circadian-gated, so bedtime is anchored to the
+/// final nap's end + that window. Fixing bedtime therefore fixes the last nap's end; earlier naps
+/// space back from it by typical wake windows. Day-sleep is implicitly capped by the AAP/AASM 24-hour
+/// total (over-napping would erode the pre-bed pressure).
 struct BedtimePlan: Equatable {
     let recommendedNapStart: Date
     let recommendedNapEnd: Date
-    /// Sweet-spot bedtime window — aim for the centre, tolerate the edges.
-    let bedtimeSweetSpot: ClosedRange<Date>
+    /// Ideal bedtime window — aim for the centre, tolerate the edges.
+    let bedtimeIdealWindow: ClosedRange<Date>
     let napsRemaining: Int
     let isLastNapBeforeBed: Bool
     /// True when physiological wake-window limits forced the nap off the ideal backward slot
@@ -36,7 +36,7 @@ enum BedtimePlanner {
         profile: AgeProfile,
         adaptationFactor: Double,
         completedNapsToday: Int,
-        sweetSpotToleranceMinutes: Double = 20
+        toleranceMinutes: Double = 20
     ) -> BedtimePlan? {
         let adapt = min(max(adaptationFactor, 0.75), 1.25)
         let typical = Double(profile.window.typicalMinutes)
@@ -72,8 +72,8 @@ enum BedtimePlanner {
         let achievableBedtime = isLast ? nextEnd.addingTimeInterval(preBedWW * 60) : targetBedtime
         let center = clamped && isLast ? achievableBedtime : targetBedtime
 
-        let tol = sweetSpotToleranceMinutes * 60
-        let sweetSpot = center.addingTimeInterval(-tol)...center.addingTimeInterval(tol)
+        let tol = toleranceMinutes * 60
+        let idealWindow = center.addingTimeInterval(-tol)...center.addingTimeInterval(tol)
 
         // Guard against degenerate ordering after clamping.
         if nextStart < minStart { nextStart = minStart }
@@ -81,7 +81,7 @@ enum BedtimePlanner {
         return BedtimePlan(
             recommendedNapStart: nextStart,
             recommendedNapEnd: nextStart.addingTimeInterval(napLen * 60),
-            bedtimeSweetSpot: sweetSpot,
+            bedtimeIdealWindow: idealWindow,
             napsRemaining: napsRemaining,
             isLastNapBeforeBed: isLast,
             clampedToLimits: clamped

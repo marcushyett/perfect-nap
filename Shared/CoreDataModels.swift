@@ -16,6 +16,9 @@ final class Baby: NSManagedObject, BabyProfileProviding {
     /// User-set custom nap schedule as comma-separated minutes-from-midnight (e.g. "570,840" =
     /// 9:30 & 14:00). Empty/nil = automatic (learned-from-history / age schedule).
     @NSManaged var customScheduleMinutes: String?
+    /// Set by the owner to mirror their Premium status. Travels through the CloudKit share so a
+    /// partner viewing this baby inherits Premium — one subscription per family. Default false.
+    @NSManaged var ownerHasPremium: Bool
 
     @discardableResult
     static func create(
@@ -130,8 +133,8 @@ final class NapSession: NSManagedObject {
 
     var durationMinutes: Int { Int(duration / 60) }
 
-    static func classify(start: Date, calendar: Calendar = .current) -> SleepKind {
-        SleepKind.classify(start: start, calendar: calendar)
+    static func classify(start: Date, bedtimeMinutes: Int? = nil, calendar: Calendar = .current) -> SleepKind {
+        SleepKind.classify(start: start, bedtimeMinutes: bedtimeMinutes, calendar: calendar)
     }
 }
 

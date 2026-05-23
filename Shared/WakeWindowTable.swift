@@ -42,7 +42,7 @@ struct AgeProfile {
 ///  - Weissbluth, *Healthy Sleep Habits, Happy Child* 5e.
 ///  - Mindell & Owens, *A Clinical Guide to Pediatric Sleep*.
 ///  - Practitioner consensus across Taking Cara Babies, Happiest Baby (Karp), Cleveland Clinic
-///    pediatric sleep team (Barrett), Huckleberry SweetSpot®, Precious Little Sleep (Dubief).
+///    pediatric sleep team (Barrett), Precious Little Sleep (Dubief).
 ///
 /// Low/high are the *union* of source ranges; `typicalMinutes` is the practical algorithmic prior
 /// before per-baby adaptation.
@@ -72,7 +72,7 @@ enum WakeWindowTable {
             preBedtimeFactor: 0.95,
             isSingleNapStage: false,
             notes: "Circadian rhythm beginning to consolidate. Bedtime still late (9–11pm).",
-            citation: "Karp; Weissbluth; Huckleberry"
+            citation: "Karp; Weissbluth; Precious Little Sleep"
         ),
         AgeProfile(
             label: "2–3 months",
@@ -85,7 +85,7 @@ enum WakeWindowTable {
             preBedtimeFactor: 1.00,
             isSingleNapStage: false,
             notes: "Last WW lengthening as witching hour fades.",
-            citation: "Taking Cara Babies; Huckleberry; Polly Moore (BRAC)"
+            citation: "Taking Cara Babies; Precious Little Sleep; Polly Moore (BRAC)"
         ),
         AgeProfile(
             label: "3–4 months",
@@ -111,7 +111,7 @@ enum WakeWindowTable {
             preBedtimeFactor: 1.15,
             isSingleNapStage: false,
             notes: "Cap day sleep at ~4h to protect nights.",
-            citation: "Huckleberry; Karp; Weissbluth"
+            citation: "Precious Little Sleep; Karp; Weissbluth"
         ),
         AgeProfile(
             label: "5–6 months",
@@ -124,7 +124,7 @@ enum WakeWindowTable {
             preBedtimeFactor: 1.15,
             isSingleNapStage: false,
             notes: "Most babies on 3 naps. 3rd nap is a short 'bridge' nap.",
-            citation: "Taking Cara Babies; Huckleberry"
+            citation: "Taking Cara Babies; Precious Little Sleep"
         ),
         AgeProfile(
             label: "6–8 months",
@@ -137,7 +137,7 @@ enum WakeWindowTable {
             preBedtimeFactor: 1.20,
             isSingleNapStage: false,
             notes: "3→2 nap transition window. Bedtime drifts to 7–8pm.",
-            citation: "Huckleberry; Taking Cara Babies"
+            citation: "Precious Little Sleep; Taking Cara Babies"
         ),
         AgeProfile(
             label: "8–10 months",
@@ -150,7 +150,7 @@ enum WakeWindowTable {
             preBedtimeFactor: 1.25,
             isSingleNapStage: false,
             notes: "Solid two-nap rhythm. Classic 3 / 3.5 / 4 hour wake-window shape.",
-            citation: "Karp; Huckleberry"
+            citation: "Karp; Precious Little Sleep"
         ),
         AgeProfile(
             label: "10–12 months",
@@ -176,7 +176,7 @@ enum WakeWindowTable {
             preBedtimeFactor: 1.15,
             isSingleNapStage: false,
             notes: "2→1 transition (often 13–18m). If 2nd nap fights, push 1st nap later.",
-            citation: "Huckleberry; Taking Cara Babies"
+            citation: "Precious Little Sleep; Taking Cara Babies"
         ),
         AgeProfile(
             label: "15–18 months",

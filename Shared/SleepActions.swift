@@ -23,11 +23,12 @@ enum SleepActions {
         if let active = fetchActive(babyID: babyID, context: ctx) { return active }
 
         TrackingState.isPaused = false   // starting a nap resumes tracking (mirrors SleepStore.startNap)
-        let kind = NapSession.classify(start: date)
+        let baby = fetchBaby(id: babyID, context: ctx)
+        let kind = NapSession.classify(start: date, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0))
         let session = NapSession.create(in: ctx, startedAt: date, kind: kind, babyID: babyID)
         try? ctx.save()
 
-        let name = fetchBaby(id: babyID, context: ctx)?.displayName ?? "Baby"
+        let name = baby?.displayName ?? "Baby"
         NapLiveActivityManager.shared.sync(babyID: babyID.uuidString, to: .napping(start: date, kind: kind), babyName: name)
         NotificationCenter.default.post(name: .perfectNapStateChanged, object: nil)
         return session

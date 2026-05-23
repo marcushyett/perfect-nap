@@ -26,7 +26,7 @@ final class BedtimePlannerTests: XCTestCase {
         let impliedBedtime = plan!.recommendedNapEnd.addingTimeInterval(preBedWW)
         XCTAssertEqual(impliedBedtime.timeIntervalSince(target), 0, accuracy: 90,
                        "Recommended last nap should end exactly one pre-bed window before bedtime.")
-        XCTAssertTrue(plan!.bedtimeSweetSpot.contains(target))
+        XCTAssertTrue(plan!.bedtimeIdealWindow.contains(target))
     }
 
     func testClampsWhenBedtimeUnreachable() {

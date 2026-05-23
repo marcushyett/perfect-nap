@@ -4,7 +4,7 @@ import Foundation
 /// binds first:
 ///  • **Protect bedtime** (primary): the last nap must end at least one pre-bed wake window before
 ///    the target bedtime, or the built-up sleep pressure (Process S) discharges and bedtime slips
-///    late with a harder settle (Weissbluth; Taking Cara Babies; Huckleberry SweetSpot).
+///    late with a harder settle (Weissbluth; Taking Cara Babies; Taking Cara Babies).
 ///  • **Balance day sleep**: total daytime sleep shouldn't exceed the age band (AAP/AASM 24-hour
 ///    totals) — over-napping borrows from the night.
 struct WakeSuggestion: Equatable {

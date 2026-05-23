@@ -4,12 +4,14 @@ import CloudKit
 
 struct SettingsView: View {
     @Environment(SleepStore.self) private var store
+    @Environment(SubscriptionManager.self) private var sub
     @Environment(\.dismiss) private var dismiss
+    @State private var showPaywall = false
     @State private var showResetConfirm = false
     @State private var editName: String = ""
     @State private var editBirth: Date = .now
 
-    @State private var sharePackage: SharePackage?
+    @State private var shareInvite: ShareInvite?
     @State private var preparingShare = false
     @State private var shareError: String?
 
@@ -57,200 +59,34 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Current baby") {
-                    if let baby = store.baby {
-                        TextField("Name", text: $editName)
-                            .onAppear { editName = baby.displayName }
-                        DatePicker("Birth date", selection: $editBirth, in: ...Date.now, displayedComponents: .date)
-                            .onAppear { editBirth = baby.birthDate ?? .now }
-                        Text(baby.ageDescription).font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-
+                currentBabySection
+                premiumSection
+                if store.baby != nil { prematuritySection }
+                babiesSection
                 if store.baby != nil {
-                    Section {
-                        Stepper("Born \(weeksPremature) week\(weeksPremature == 1 ? "" : "s") early", value: $weeksPremature, in: 0...18)
-                            .onAppear { weeksPremature = Int(store.baby?.weeksPremature ?? 0) }
-                            .onChange(of: weeksPremature) { _, v in store.setWeeksPremature(v) }
-                    } header: {
-                        Text("Prematurity")
-                    } footer: {
-                        Text(weeksPremature > 0
-                             ? "Predictions use a corrected age of \(correctedAgeText) (chronological minus \(weeksPremature) week\(weeksPremature == 1 ? "" : "s")), per pediatric guidance through ~2 years."
-                             : "If your baby arrived early, set how many weeks early. Sleep predictions then use corrected age.")
-                    }
-                }
-
-                Section("Babies") {
-                    ForEach(store.babies, id: \.objectID) { b in
-                        Button {
-                            store.selectBaby(b)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(b.displayName).foregroundStyle(.primary)
-                                    if store.isShared(b), let owner = SharingCoordinator.shared.ownerDisplayName(for: b) {
-                                        Text("Shared by \(owner)").font(.caption).foregroundStyle(.secondary)
-                                    } else {
-                                        Text(b.ageDescription).font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer()
-                                if b.objectID == store.baby?.objectID {
-                                    Image(systemName: "checkmark").foregroundStyle(.tint)
-                                }
-                                if store.babies.count > 1 {
-                                    Button(role: .destructive) { babyToRemove = b } label: {
-                                        Image(systemName: store.isShared(b) ? "person.badge.minus" : "trash")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .padding(.leading, 8)
-                                }
-                            }
-                        }
-                    }
-                    Button { showAddBaby = true } label: {
-                        Label("Add another baby", systemImage: "plus.circle.fill")
-                    }
-                }
-
-                if store.baby != nil {
-                    Section("Bedtime") {
-                        Toggle("Optimise naps for a bedtime", isOn: $bedtimeEnabled)
-                        if bedtimeEnabled {
-                            DatePicker("Target bedtime", selection: $bedtimeTime, displayedComponents: .hourAndMinute)
-                            Text("Naps will be timed backward from this so the day lands at the bedtime sweet spot — late enough for easy settling, early enough to avoid an overtired second wind.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
-                    .onAppear { loadBedtime() }
-                    .onChange(of: bedtimeEnabled) { _, _ in saveBedtime() }
-                    .onChange(of: bedtimeTime) { _, _ in saveBedtime() }
-                }
-
-                if let baby = store.baby {
-                    Section {
-                        Toggle("Set a custom nap schedule", isOn: $useCustomSchedule)
-                        if useCustomSchedule {
-                            ForEach(scheduleTimes.indices, id: \.self) { i in
-                                HStack {
-                                    DatePicker("Nap \(i + 1)", selection: $scheduleTimes[i], displayedComponents: .hourAndMinute)
-                                    Button(role: .destructive) { scheduleTimes.remove(at: i); saveSchedule() } label: {
-                                        Image(systemName: "minus.circle.fill")
-                                    }.buttonStyle(.borderless)
-                                }
-                            }
-                            Button {
-                                scheduleTimes.append(scheduleTimes.last?.addingTimeInterval(3 * 3600) ?? defaultNapTime)
-                                saveSchedule()
-                            } label: { Label("Add a nap time", systemImage: "plus.circle.fill") }
-                        }
-                    } header: {
-                        Text("Nap schedule")
-                    } footer: {
-                        if baby.adjustedAgeInDays < 120 {
-                            Text("⚠️ Schedules aren't usually recommended before ~4 months — wake windows fit a developing rhythm better at this age. You can still set one if you'd like.")
-                        } else if useCustomSchedule {
-                            Text("Predictions blend toward these fixed nap times (more so as \(baby.displayName) gets older).")
-                        } else {
-                            Text("Automatic — learned from \(baby.displayName)'s recent nap times.")
-                        }
-                    }
-                    .onAppear { loadSchedule() }
-                    .onChange(of: useCustomSchedule) { _, on in
-                        if on, scheduleTimes.isEmpty { scheduleTimes = defaultScheduleTimes() }
-                        saveSchedule()
-                    }
-                    .onChange(of: scheduleTimes) { _, _ in saveSchedule() }
-                }
-
-                if store.baby != nil {
+                    bedtimeSection
+                    scheduleSection
                     travelSection
+                    sharingSection
                 }
-
-                if let baby = store.baby {
-                    Section("Share with a partner") {
-                        switch SharingCoordinator.shared.shareState(for: baby) {
-                        case .notShared:
-                            Text("Invite the other parent so you both see naps, wake windows, and can log sleep — synced live over iCloud.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                            Button {
-                                invitePartner(baby: baby)
-                            } label: {
-                                if preparingShare {
-                                    HStack { ProgressView(); Text("Preparing invite…") }
-                                } else {
-                                    Label("Invite partner", systemImage: "person.2.badge.plus")
-                                }
-                            }
-                            .disabled(preparingShare)
-                        case .shared(let count, let isOwner):
-                            Label(count > 0 ? "Shared with \(count) other\(count == 1 ? "" : "s")" : "Share created — invite pending",
-                                  systemImage: "person.2.fill")
-                            Button(isOwner ? "Manage sharing" : "View sharing") {
-                                invitePartner(baby: baby)
-                            }
-                        }
-                        if let shareError {
-                            Text(shareError).font(.caption).foregroundStyle(.red)
-                        }
-                    }
-                }
-
-                Section("Personalisation") {
-                    if let baby = store.baby {
-                        LabeledContent("Adapted factor", value: String(format: "×%.2f", baby.adaptationFactor))
-                        LabeledContent("Confidence", value: "\(Int(baby.adaptationConfidence * 100))%")
-                        Text("Perfect Nap adjusts its predictions for this baby using a Bayesian-style exponential moving average over your last few logged naps.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-
-                if let baby = store.baby,
-                   let suggestion = BedtimeAdvisor.suggest(baby: baby, lastSleep: store.lastCompletedSleep, napsToday: store.napsToday) {
-                    Section("Tonight's bedtime") {
-                        LabeledContent("Recommended", value: CountdownFormatter.clock(suggestion.recommendedBedtime))
-                        LabeledContent("Day sleep so far", value: "\(suggestion.totalDaySleepMinutes) min")
-                        LabeledContent("Target night sleep", value: String(format: "%.1f h", suggestion.targetNightHours))
-                        Text(suggestion.rationale)
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-
-                Section("Sources") {
-                    ForEach(SleepSources.all) { source in
-                        Link(destination: source.url) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(source.title).font(.subheadline.weight(.medium))
-                                Text(source.author).font(.caption).foregroundStyle(.secondary)
-                                Text(source.note).font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-
-                Section {
-                    Button("Save changes") { saveEdits() }
-                    Button(role: .destructive) {
-                        showResetConfirm = true
-                    } label: {
-                        Text("Reset everything")
-                    }
-                }
-
-                Section("Live Activity diagnostics") {
-                    Text(liveActivityStatus)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                Section {
-                    Text("Your data stays private to you and anyone you explicitly invite, synced over your iCloud. No third-party servers, no tracking.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                personalisationSection
+                tonightSection
+                sourcesSection
+                actionsSection
+                diagnosticsSection
+                privacySection
             }
             .navigationTitle("Settings")
+            // Per-baby fields are loaded into @State via .onAppear (which fires once). Switching baby
+            // inside Settings must reload them, or the form shows the previous baby's values.
+            .onChange(of: store.baby?.objectID) { _, _ in
+                guard let baby = store.baby else { return }
+                editName = baby.displayName
+                editBirth = baby.birthDate ?? .now
+                weeksPremature = Int(baby.weeksPremature)
+                loadBedtime()
+                loadSchedule()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
@@ -290,12 +126,264 @@ struct SettingsView: View {
                 }
                 .presentationDetents([.medium])
             }
-            .sheet(item: $sharePackage) { pkg in
-                CloudSharingView(share: pkg.share, container: pkg.container)
-                    .ignoresSafeArea()
+            .sheet(item: $shareInvite) { invite in
+                ActivityShareSheet(invite: invite)
             }
             .sheet(isPresented: $showTripSheet) {
                 TripSetupSheet(existing: store.trip)
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView(babyName: store.baby?.displayName ?? "your baby",
+                            onDone: { showPaywall = false },
+                            headline: "Unlock Perfect Nap Premium")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var currentBabySection: some View {
+        Section("Current baby") {
+            if let baby = store.baby {
+                TextField("Name", text: $editName)
+                    .onAppear { editName = baby.displayName }
+                DatePicker("Birth date", selection: $editBirth, in: ...Date.now, displayedComponents: .date)
+                    .onAppear { editBirth = baby.birthDate ?? .now }
+                Text(baby.ageDescription).font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var prematuritySection: some View {
+        Section {
+            Stepper("Born \(weeksPremature) week\(weeksPremature == 1 ? "" : "s") early", value: $weeksPremature, in: 0...18)
+                .onAppear { weeksPremature = Int(store.baby?.weeksPremature ?? 0) }
+                .onChange(of: weeksPremature) { _, v in store.setWeeksPremature(v) }
+                .accessibilityIdentifier("settings.prematurityStepper")
+                .accessibilityValue("\(weeksPremature)")
+        } header: {
+            Text("Prematurity")
+        } footer: {
+            Text(weeksPremature > 0
+                 ? "Predictions use a corrected age of \(correctedAgeText) (chronological minus \(weeksPremature) week\(weeksPremature == 1 ? "" : "s")), per pediatric guidance through ~2 years."
+                 : "If your baby arrived early, set how many weeks early. Sleep predictions then use corrected age.")
+        }
+    }
+
+    @ViewBuilder
+    private var babiesSection: some View {
+        Section("Babies") {
+            ForEach(store.babies, id: \.objectID) { b in
+                Button {
+                    store.selectBaby(b)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(b.displayName).foregroundStyle(.primary)
+                            if store.isShared(b), let owner = SharingCoordinator.shared.ownerDisplayName(for: b) {
+                                Text("Shared by \(owner)").font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                Text(b.ageDescription).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if b.objectID == store.baby?.objectID {
+                            Image(systemName: "checkmark").foregroundStyle(.tint)
+                        }
+                        if store.babies.count > 1 {
+                            Button(role: .destructive) { babyToRemove = b } label: {
+                                Image(systemName: store.isShared(b) ? "person.badge.minus" : "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .padding(.leading, 8)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("settingsBaby.\(b.displayName)")
+            }
+            Button {
+                if store.canAddBaby { showAddBaby = true } else { showPaywall = true }
+            } label: {
+                Label(store.canAddBaby ? "Add another baby" : "Add another baby (Premium)",
+                      systemImage: store.canAddBaby ? "plus.circle.fill" : "lock.circle.fill")
+            }
+            .accessibilityIdentifier("settings.addBaby")
+        }
+    }
+
+    @ViewBuilder
+    private var bedtimeSection: some View {
+        Section("Bedtime") {
+            Toggle("Optimise naps for a bedtime", isOn: $bedtimeEnabled)
+            if bedtimeEnabled {
+                DatePicker("Target bedtime", selection: $bedtimeTime, displayedComponents: .hourAndMinute)
+                Text("Naps will be timed backward from this so the day lands in the ideal bedtime window — late enough for easy settling, early enough to avoid an overtired second wind.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .onAppear { loadBedtime() }
+        .onChange(of: bedtimeEnabled) { _, _ in saveBedtime() }
+        .onChange(of: bedtimeTime) { _, _ in saveBedtime() }
+    }
+
+    @ViewBuilder
+    private var scheduleSection: some View {
+        if let baby = store.baby {
+            Section {
+                Toggle("Set a custom nap schedule", isOn: $useCustomSchedule)
+                if useCustomSchedule {
+                    ForEach(scheduleTimes.indices, id: \.self) { i in
+                        HStack {
+                            DatePicker("Nap \(i + 1)", selection: $scheduleTimes[i], displayedComponents: .hourAndMinute)
+                            Button(role: .destructive) { scheduleTimes.remove(at: i); saveSchedule() } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }.buttonStyle(.borderless)
+                        }
+                    }
+                    Button {
+                        scheduleTimes.append(scheduleTimes.last?.addingTimeInterval(3 * 3600) ?? defaultNapTime)
+                        saveSchedule()
+                    } label: { Label("Add a nap time", systemImage: "plus.circle.fill") }
+                }
+            } header: {
+                Text("Nap schedule")
+            } footer: {
+                if baby.adjustedAgeInDays < 120 {
+                    Text("⚠️ Schedules aren't usually recommended before ~4 months — wake windows fit a developing rhythm better at this age. You can still set one if you'd like.")
+                } else if useCustomSchedule {
+                    Text("Predictions blend toward these fixed nap times (more so as \(baby.displayName) gets older).")
+                } else {
+                    Text("Automatic — learned from \(baby.displayName)'s recent nap times.")
+                }
+            }
+            .onAppear { loadSchedule() }
+            .onChange(of: useCustomSchedule) { _, on in
+                if on, scheduleTimes.isEmpty { scheduleTimes = defaultScheduleTimes() }
+                saveSchedule()
+            }
+            .onChange(of: scheduleTimes) { _, _ in saveSchedule() }
+        }
+    }
+
+    @ViewBuilder
+    private var personalisationSection: some View {
+        Section("Personalisation") {
+            if let baby = store.baby {
+                LabeledContent("Adapted factor", value: String(format: "×%.2f", baby.adaptationFactor))
+                LabeledContent("Confidence", value: "\(Int(baby.adaptationConfidence * 100))%")
+                Text("Perfect Nap adjusts its predictions for this baby using a Bayesian-style exponential moving average over your last few logged naps.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tonightSection: some View {
+        if let baby = store.baby,
+           let suggestion = BedtimeAdvisor.suggest(baby: baby, lastSleep: store.lastCompletedSleep, napsToday: store.napsToday) {
+            Section("Tonight's bedtime") {
+                LabeledContent("Recommended", value: CountdownFormatter.clock(suggestion.recommendedBedtime))
+                LabeledContent("Day sleep so far", value: "\(suggestion.totalDaySleepMinutes) min")
+                LabeledContent("Target night sleep", value: String(format: "%.1f h", suggestion.targetNightHours))
+                Text(suggestion.rationale)
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sourcesSection: some View {
+        Section("Sources") {
+            ForEach(SleepSources.all) { source in
+                Link(destination: source.url) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(source.title).font(.subheadline.weight(.medium))
+                        Text(source.author).font(.caption).foregroundStyle(.secondary)
+                        Text(source.note).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionsSection: some View {
+        Section {
+            Button("Save changes") { saveEdits() }
+            Button(role: .destructive) { showResetConfirm = true } label: { Text("Reset everything") }
+        }
+    }
+
+    @ViewBuilder
+    private var diagnosticsSection: some View {
+        Section("Live Activity diagnostics") {
+            Text(liveActivityStatus)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private var privacySection: some View {
+        Section {
+            Text("Your data stays private to you and anyone you explicitly invite, synced over your iCloud. No third-party servers, no tracking.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var premiumSection: some View {
+        Section {
+            if sub.isPremium {
+                Label(SubscriptionManager.isComplimentary ? "Premium · complimentary" : "Premium active", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.tint)
+                Text(SubscriptionManager.isComplimentary
+                     ? "Full access on this build (tester/developer)."
+                     : "Thanks for supporting Perfect Nap — every smart feature is unlocked.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                Text("You're on the free plan. Premium unlocks personalised predictions, the daily schedule, resettle help, travel mode, charts and multiple children.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button { showPaywall = true } label: {
+                    Label("Start 7-day free trial", systemImage: "sparkles")
+                }
+                .accessibilityIdentifier("settings.upgrade")
+            }
+        } header: { Text("Perfect Nap Premium") }
+    }
+
+    @ViewBuilder
+    private var sharingSection: some View {
+        if let baby = store.baby {
+            Section("Share with a partner") {
+                let state = SharingCoordinator.shared.shareState(for: baby)
+                let isParticipant: Bool = { if case .shared(_, let isOwner) = state { return !isOwner }; return false }()
+                if isParticipant {
+                    Label("Shared with you", systemImage: "person.2.fill")
+                    Text("You both see \(baby.displayName)'s naps and can log sleep — synced live.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("Invite the other parent — they get a link to view \(baby.displayName)'s naps and log sleep too, synced live over iCloud. One subscription covers you both.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button { invitePartner(baby: baby) } label: {
+                        if preparingShare {
+                            HStack(spacing: 8) { ProgressView(); Text("Preparing link…") }
+                        } else {
+                            Label("Invite partner", systemImage: "person.2.badge.plus")
+                        }
+                    }
+                    .disabled(preparingShare)
+                    .accessibilityIdentifier("settings.invitePartner")
+                    if case .shared = state {
+                        Button("Stop sharing", role: .destructive) {
+                            Task { try? await SharingCoordinator.shared.stopSharing(baby) }
+                        }
+                    }
+                }
+                if let shareError {
+                    Text(shareError).font(.caption).foregroundStyle(.red)
+                }
             }
         }
     }
@@ -318,9 +406,13 @@ struct SettingsView: View {
             } else {
                 Text("Crossing time zones? Set up a trip and we'll gently shift \(store.baby?.displayName ?? "your child")'s schedule toward your destination — before you fly or after you land.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Button { showTripSheet = true } label: {
-                    Label("Plan a trip", systemImage: "airplane.departure")
+                Button {
+                    if store.isPremium { showTripSheet = true } else { showPaywall = true }
+                } label: {
+                    Label(store.isPremium ? "Plan a trip" : "Plan a trip (Premium)",
+                          systemImage: store.isPremium ? "airplane.departure" : "lock.circle.fill")
                 }
+                .accessibilityIdentifier("settings.planTrip")
             }
         }
     }
@@ -330,10 +422,11 @@ struct SettingsView: View {
         shareError = nil
         Task {
             do {
-                let (share, container) = try await SharingCoordinator.shared.makeShare(for: baby)
-                sharePackage = SharePackage(share: share, container: container)
+                let url = try await SharingCoordinator.shared.shareURL(for: baby)
+                let message = "Join me on Perfect Nap to follow \(baby.displayName)'s naps and log sleep together:"
+                shareInvite = ShareInvite(message: message, url: url)
             } catch {
-                shareError = "Couldn't start sharing: \(error.localizedDescription)"
+                shareError = error.localizedDescription
             }
             preparingShare = false
         }

@@ -51,20 +51,31 @@ final class CoreDataStack {
         #endif
     }
 
+    /// UI tests launch with `-uiTesting`: a clean in-memory store (no persistence across launches,
+    /// no CloudKit) so each test starts from a deterministic, seeded state.
+    static var isUITesting: Bool { ProcessInfo.processInfo.arguments.contains("-uiTesting") }
+
     private init() {
-        cloudKitEnabled = CoreDataStack.detectCloudKitAvailable()
-        perfectNapLog.notice("CoreDataStack init: cloudKitEnabled=\(self.cloudKitEnabled, privacy: .public)")
+        let uiTesting = CoreDataStack.isUITesting
+        cloudKitEnabled = uiTesting ? false : CoreDataStack.detectCloudKitAvailable()
+        perfectNapLog.notice("CoreDataStack init: cloudKitEnabled=\(self.cloudKitEnabled, privacy: .public) uiTesting=\(uiTesting, privacy: .public)")
         container = NSPersistentCloudKitContainer(name: "PerfectNap", managedObjectModel: CoreDataStack.model)
 
         let baseURL = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: CoreDataStack.appGroupID)
             ?? NSPersistentContainer.defaultDirectoryURL()
 
-        let privateDesc = NSPersistentStoreDescription(url: baseURL.appendingPathComponent("PerfectNap.private.sqlite"))
-        privateDesc.shouldMigrateStoreAutomatically = true
-        privateDesc.shouldInferMappingModelAutomatically = true
-        privateDesc.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
-        privateDesc.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        let privateDesc: NSPersistentStoreDescription
+        if uiTesting {
+            privateDesc = NSPersistentStoreDescription()
+            privateDesc.type = NSInMemoryStoreType
+        } else {
+            privateDesc = NSPersistentStoreDescription(url: baseURL.appendingPathComponent("PerfectNap.private.sqlite"))
+            privateDesc.shouldMigrateStoreAutomatically = true
+            privateDesc.shouldInferMappingModelAutomatically = true
+            privateDesc.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+            privateDesc.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        }
 
         var descriptions = [privateDesc]
 
@@ -149,6 +160,7 @@ final class CoreDataStack {
             attr("targetBedtimeMinutes", .integer64AttributeType, optional: false, default: 0),
             attr("weeksPremature", .integer64AttributeType, optional: false, default: 0),
             attr("customScheduleMinutes", .stringAttributeType),
+            attr("ownerHasPremium", .booleanAttributeType, optional: false, default: false),
         ]
 
         let nap = NSEntityDescription()

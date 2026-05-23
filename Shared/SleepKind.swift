@@ -4,9 +4,31 @@ enum SleepKind: String, Codable, CaseIterable {
     case nap
     case night
 
-    static func classify(start: Date, calendar: Calendar = .current) -> SleepKind {
-        let hour = calendar.component(.hour, from: start)
-        return (hour >= 19 || hour < 5) ? .night : .nap
+    /// A sleep beginning within this many minutes *before* the target bedtime is an early night, not
+    /// a late nap (an overtired baby going down early is starting the night).
+    static let earlyBedtimeBufferMinutes = 60
+    /// Default evening cutoff when no bedtime is set, and the latest the night ever starts.
+    static let defaultNightStartMinutes = 19 * 60   // 7:00 PM
+    static let morningStartMinutes = 5 * 60         // before 5:00 AM is still night
+
+    /// Classifies a sleep as a daytime nap or night sleep. When a target bedtime is set, a sleep that
+    /// starts close to (or after) it counts as night — so an early bedtime turns the "nap" into night
+    /// sleep rather than a late-afternoon nap.
+    static func classify(start: Date, bedtimeMinutes: Int? = nil, calendar: Calendar = .current) -> SleepKind {
+        let c = calendar.dateComponents([.hour, .minute], from: start)
+        let minuteOfDay = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        if minuteOfDay < morningStartMinutes { return .night }      // pre-dawn is always night
+        var nightStart = defaultNightStartMinutes
+        if let bedtimeMinutes, bedtimeMinutes > 0 {
+            nightStart = min(nightStart, bedtimeMinutes - earlyBedtimeBufferMinutes)
+        }
+        return minuteOfDay >= nightStart ? .night : .nap
+    }
+
+    /// A "night waking": the baby woke from night sleep and it's still night. The right response is a
+    /// simple resettle (back to sleep) — not a daytime nap with a wake-window countdown.
+    static func isNightWaking(lastSleepKind: SleepKind?, now: Date, bedtimeMinutes: Int?, calendar: Calendar = .current) -> Bool {
+        lastSleepKind == .night && classify(start: now, bedtimeMinutes: bedtimeMinutes, calendar: calendar) == .night
     }
 }
 

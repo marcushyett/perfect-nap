@@ -22,10 +22,10 @@ final class WakeWindowStatusTests: XCTestCase {
         XCTAssertEqual(p.minutesOvertired(at: now), 0)
     }
 
-    func testSweetSpotWithinWindow() {
+    func testIdealWindowWithinRange() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let p = prediction(earliest: now.addingTimeInterval(-600), recommended: now, latest: now.addingTimeInterval(1200))
-        XCTAssertEqual(p.status(at: now), .sweetSpot)
+        XCTAssertEqual(p.status(at: now), .ideal)
         XCTAssertEqual(p.minutesOvertired(at: now), 0, "Not overtired while still inside the window.")
     }
 
