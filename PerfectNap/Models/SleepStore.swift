@@ -15,6 +15,8 @@ final class SleepStore {
     private(set) var lastNightTotalSeconds: TimeInterval = 0
     /// Set when the wake window is implausibly long — likely an unlogged nap to backdate.
     private(set) var skippedNapInference: SkippedNapInference?
+    /// Estimated length (minutes) of the next/current nap, personalised from recent naps.
+    private(set) var estimatedNapMinutes: Int?
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -214,7 +216,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNapMinutes = nil
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -234,6 +236,12 @@ final class SleepStore {
         let dayStart = Calendar.current.startOfDay(for: .now)
         napsToday = completed.filter { $0.start >= dayStart }
         lastNightTotalSeconds = computeLastNightTotal(completed: completed)
+
+        if let baby {
+            let recentNaps = completed.filter { $0.kind == .nap }.prefix(6).map { Double($0.durationMinutes) }
+            let est = NapLengthEstimator.estimate(recentNapMinutes: recentNaps, profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays))
+            if estimatedNapMinutes != est { estimatedNapMinutes = est }
+        }
 
         if let baby, activeSession == nil, !TrackingState.isPaused {
             let predictor = NapPredictor(baby: baby)

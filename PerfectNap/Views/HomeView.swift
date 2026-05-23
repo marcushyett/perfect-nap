@@ -30,6 +30,13 @@ struct HomeView: View {
         return now >= bedtime.addingTimeInterval(-3.5 * 3600) && now <= bedtime.addingTimeInterval(3600)
     }
 
+    private func durationText(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        if h > 0 && m > 0 { return "\(h)h \(m)m" }
+        if h > 0 { return "\(h)h" }
+        return "\(m)m"
+    }
+
     private func babyMenuLabel(_ baby: Baby) -> String {
         if store.isShared(baby), let owner = SharingCoordinator.shared.ownerDisplayName(for: baby) {
             return "\(baby.displayName) — shared by \(owner)"
@@ -251,6 +258,10 @@ struct HomeView: View {
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 .opacity(0.85)
+                if session.kind == .nap, let est = store.estimatedNapMinutes {
+                    Text("Usually naps ~\(durationText(est))")
+                        .font(.footnote).opacity(0.6)
+                }
             }
         } else if let prediction = store.prediction {
             let overdue = now >= prediction.recommendedStart
@@ -288,6 +299,10 @@ struct HomeView: View {
                 }
                 if let lastEnded = store.lastCompletedSleep?.endedAt {
                     Text("Last woke at \(CountdownFormatter.clock(lastEnded))")
+                        .font(.footnote).opacity(0.6)
+                }
+                if let est = store.estimatedNapMinutes {
+                    Text("This nap usually lasts ~\(durationText(est))")
                         .font(.footnote).opacity(0.6)
                 }
                 Button { showRationale = true; Haptics.tap() } label: {
