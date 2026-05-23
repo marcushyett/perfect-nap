@@ -15,6 +15,8 @@ final class SleepStore {
     private(set) var lastNightTotalSeconds: TimeInterval = 0
     /// Set when the wake window is implausibly long — likely an unlogged nap to backdate.
     private(set) var skippedNapInference: SkippedNapInference?
+    /// Set in the morning when last night wasn't recorded — nudge to log it (we assume a baseline night).
+    private(set) var missingNightInference: MissingNightInference?
     /// Set just after an early wake from a short nap — suggest resettling before the next window.
     private(set) var resettle: ResettleWindow?
     /// True when the baby has woken from night sleep but it's still night — they don't nap at night,
@@ -284,7 +286,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil; activeNapProjectedEnd = nil; dstAdjustment = nil; trip = nil; jetLagPlan = nil; isNightWaking = false
+            prediction = nil; skippedNapInference = nil; missingNightInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []; resettle = nil; activeNapProjectedEnd = nil; dstAdjustment = nil; trip = nil; jetLagPlan = nil; isNightWaking = false
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -381,19 +383,36 @@ final class SleepStore {
                     let basic = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: nil, scheduleAnchors: nil, personalize: false)
                     if prediction != basic { prediction = basic }
                 }
+                // Missing-night nudge: it's morning and last night wasn't recorded. Takes precedence
+                // over the skipped-nap nudge — when both could fire, an unlogged night is the likelier
+                // story (and avoids double-nudging).
+                let profileForNudges = WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays)
+                var newMissingNight = MissingNightDetector.detect(
+                    lastSleepKind: lastCompletedSleep?.kind, lastSleepEnd: lastCompletedSleep?.endedAt,
+                    now: .now, profile: profileForNudges)
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-forceMissingNight"), newMissingNight == nil {
+                    let band = profileForNudges.totalNightSleepHours
+                    let h = (band.lowerBound + band.upperBound) / 2
+                    newMissingNight = MissingNightInference(suggestedStart: Date.now.addingTimeInterval(-h * 3600), suggestedEnd: .now, assumedHours: h)
+                }
+                #endif
+                if missingNightInference != newMissingNight { missingNightInference = newMissingNight }
                 // Skipped-nap nudge is a basic safety net — available on the free tier too.
-                let newInference = lastCompletedSleep?.endedAt.flatMap {
+                let newInference = newMissingNight != nil ? nil : lastCompletedSleep?.endedAt.flatMap {
                     SkippedNapDetector.detect(lastWake: $0, now: .now,
-                        profile: WakeWindowTable.profile(forAgeDays: baby.adjustedAgeInDays), adaptationFactor: baby.adaptationFactor)
+                        profile: profileForNudges, adaptationFactor: baby.adaptationFactor)
                 }
                 if skippedNapInference != newInference { skippedNapInference = newInference }
             } else {
                 if prediction != nil { prediction = nil }
                 if skippedNapInference != nil { skippedNapInference = nil }
+                if missingNightInference != nil { missingNightInference = nil }
             }
         } else {
             if prediction != nil { prediction = nil }
             if skippedNapInference != nil { skippedNapInference = nil }
+            if missingNightInference != nil { missingNightInference = nil }
             if resettle != nil { resettle = nil }
             if isNightWaking { isNightWaking = false }
         }

@@ -33,7 +33,10 @@ final class SleepStoreMultiBabyTests: XCTestCase {
     }
 
     private func addNap(_ babyID: UUID, startHoursAgo: Double, durationMin: Double, active: Bool = false) {
-        let start = Date.now.addingTimeInterval(-startHoursAgo * 3600)
+        // Clamp into "today" so napsToday-based assertions don't flake when the suite runs just after
+        // midnight (where "N hours ago" would land on the previous calendar day and drop out of napsToday).
+        let dayStart = Calendar.current.startOfDay(for: .now)
+        let start = max(Date.now.addingTimeInterval(-startHoursAgo * 3600), dayStart.addingTimeInterval(60))
         NapSession.create(in: container.viewContext, startedAt: start,
                           endedAt: active ? nil : start.addingTimeInterval(durationMin * 60),
                           kind: .nap, babyID: babyID)

@@ -11,6 +11,7 @@ struct HomeView: View {
     @State private var draftStartDate: Date = .now
     @State private var showStopTrackingConfirm = false
     @State private var showAddMissedNap = false
+    @State private var showLogNight = false
     @State private var showBedtimeEditor = false
     @State private var showAddBaby = false
     @State private var debugShowTrip = false
@@ -115,6 +116,7 @@ struct HomeView: View {
                     topBar
                     dstBanner
                     jetLagBanner
+                    missingNightBanner
                     missedNapBanner
                     Spacer(minLength: 12)
                     centerStack(now: now)
@@ -157,6 +159,20 @@ struct HomeView: View {
                 AddMissedNapSheet(start: inference.likelyStart, end: inference.likelyEnd) { start, end in
                     store.addNap(start: start, end: end)
                     showAddMissedNap = false
+                }
+                .presentationDetents([.medium])
+            }
+        }
+        .sheet(isPresented: $showLogNight) {
+            if let night = store.missingNightInference {
+                AddMissedNapSheet(
+                    start: night.suggestedStart, end: night.suggestedEnd,
+                    title: "Log last night",
+                    note: "We've prefilled a typical night. Adjust the times to match when \(store.baby?.displayName ?? "your baby") actually slept — or just add it as-is.",
+                    addLabel: "Add night"
+                ) { start, end in
+                    store.addNap(start: start, end: end, kind: .night)
+                    showLogNight = false
                 }
                 .presentationDetents([.medium])
             }
@@ -269,6 +285,31 @@ struct HomeView: View {
         case .stayOnHome: return "house"
         case .settled: return "checkmark.circle"
         case .adaptingHome: return "house"
+        }
+    }
+
+    @ViewBuilder
+    private var missingNightBanner: some View {
+        if let night = store.missingNightInference, store.activeSession == nil {
+            Button { showLogNight = true; Haptics.tap() } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "moon.stars.fill")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Didn't record last night?")
+                            .font(.footnote.weight(.semibold))
+                        Text("We've assumed \(store.baby?.displayName ?? "baby") slept about \(Int(night.assumedHours.rounded()))h. Tap to log it.")
+                            .font(.caption)
+                            .opacity(0.8)
+                    }
+                    Spacer()
+                    Image(systemName: "square.and.pencil")
+                }
+                .padding(12)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home.missingNightBanner")
+            .padding(.top, 8)
         }
     }
 
@@ -679,12 +720,22 @@ struct BedtimeEditorSheet: View {
 struct AddMissedNapSheet: View {
     @State private var start: Date
     @State private var end: Date
+    let title: String
+    let note: String
+    let addLabel: String
     let onSave: (Date, Date) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    init(start: Date, end: Date, onSave: @escaping (Date, Date) -> Void) {
+    init(start: Date, end: Date,
+         title: String = "Add missed nap",
+         note: String = "Add a nap you forgot to log. Adjust the times if needed — this also improves future predictions.",
+         addLabel: String = "Add",
+         onSave: @escaping (Date, Date) -> Void) {
         _start = State(initialValue: start)
         _end = State(initialValue: end)
+        self.title = title
+        self.note = note
+        self.addLabel = addLabel
         self.onSave = onSave
     }
 
@@ -692,20 +743,20 @@ struct AddMissedNapSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Add a nap you forgot to log. Adjust the times if needed — this also improves future predictions.")
+                    Text(note)
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("Nap times") {
+                Section("Times") {
                     DatePicker("Started", selection: $start, in: ...Date.now)
                     DatePicker("Ended", selection: $end, in: start...Date.now)
                 }
             }
-            .navigationTitle("Add missed nap")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Add") {
+                    Button(addLabel) {
                         onSave(start, end)
                         Haptics.tap()
                     }

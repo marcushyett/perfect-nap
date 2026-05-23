@@ -170,6 +170,20 @@ final class CoreFlowsUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Add People"].exists, "Must not require adding people before sharing.")
     }
 
+    // MARK: - "didn't record the night?" nudge
+
+    func testMissingNightNudgeOpensLogSheet() {
+        let app = launch("-seedSampleData", "-forceMissingNight")
+        let banner = app.buttons["home.missingNightBanner"]
+        XCTAssertTrue(banner.waitForExistence(timeout: 10), "Missing-night nudge should show when last night wasn't recorded.")
+        banner.tap()
+        let sheetTitle = app.navigationBars["Log last night"]
+        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 5), "Tapping the nudge opens the log-night sheet.")
+        XCTAssertTrue(app.buttons["Add night"].exists, "Sheet offers to add the assumed night.")
+        app.buttons["Add night"].tap()
+        XCTAssertFalse(sheetTitle.waitForExistence(timeout: 3), "Saving the night dismisses the sheet.")
+    }
+
     // MARK: - resettle suggestion (seeded short early-wake)
 
     func testResettleSuggestionShows() {
