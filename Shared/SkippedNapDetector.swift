@@ -29,18 +29,16 @@ enum SkippedNapDetector {
         let elapsedMin = now.timeIntervalSince(lastWake) / 60.0
         guard elapsedMin > maxWW * implausibilityFactor else { return nil }
 
-        // Infer: nap started ~one typical window after the last wake, lasted a typical nap.
+        // Infer: nap started ~one typical window after the last wake, lasted a typical nap. These are
+        // anchored to the (fixed) last wake — NOT clamped to `now` — so the inferred slot, and the
+        // prediction that re-anchors from it, stay put as the clock ticks instead of drifting with
+        // `now` (which made the home screen flicker between "next nap in 0m" and "overdue by 0 min").
         let typicalWW = Double(profile.window.typicalMinutes) * adapt
         let napLen = BedtimePlanner.typicalNapMinutes(profile)
-        var start = lastWake.addingTimeInterval(typicalWW * 60)
-        var end = start.addingTimeInterval(napLen * 60)
-        // Keep the inferred slot in the past, leaving a plausible post-nap window before now.
-        let latestEnd = now.addingTimeInterval(-Double(profile.window.lowMinutes) * adapt * 60)
-        if end > latestEnd {
-            end = latestEnd
-            start = min(start, end.addingTimeInterval(-napLen * 60))
-        }
-        guard end > start else { return nil }
+        let start = lastWake.addingTimeInterval(typicalWW * 60)
+        let end = start.addingTimeInterval(napLen * 60)
+        // Only infer a nap that has plausibly already happened (ended in the past).
+        guard end < now, end > start else { return nil }
         return SkippedNapInference(likelyStart: start, likelyEnd: end)
     }
 }

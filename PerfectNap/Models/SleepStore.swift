@@ -15,8 +15,9 @@ final class SleepStore {
     private(set) var lastNightTotalSeconds: TimeInterval = 0
     /// Set when the wake window is implausibly long — likely an unlogged nap to backdate.
     private(set) var skippedNapInference: SkippedNapInference?
-    /// Estimated length (minutes) of the next/current nap, personalised from recent naps.
-    private(set) var estimatedNapMinutes: Int?
+    /// Estimated length of the next/current nap (by time of day, with a confidence score). nil until
+    /// there's at least a day of history.
+    private(set) var estimatedNap: NapLengthEstimate?
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -216,7 +217,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNapMinutes = nil
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -237,12 +238,6 @@ final class SleepStore {
         napsToday = completed.filter { $0.start >= dayStart }
         lastNightTotalSeconds = computeLastNightTotal(completed: completed)
 
-        if let baby {
-            let recentNaps = completed.filter { $0.kind == .nap }.prefix(6).map { Double($0.durationMinutes) }
-            let est = NapLengthEstimator.estimate(recentNapMinutes: recentNaps, profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays))
-            if estimatedNapMinutes != est { estimatedNapMinutes = est }
-        }
-
         if let baby, activeSession == nil, !TrackingState.isPaused {
             let predictor = NapPredictor(baby: baby)
             let newPrediction = predictor.predict(lastSleep: lastCompletedSleep, napsToday: napsToday, lastNightTotalSeconds: lastNightTotalSeconds)
@@ -255,6 +250,16 @@ final class SleepStore {
         } else {
             if prediction != nil { prediction = nil }
             if skippedNapInference != nil { skippedNapInference = nil }
+        }
+
+        if let baby {
+            let history = completed.filter { $0.kind == .nap }.map { (start: $0.start, minutes: Double($0.durationMinutes)) }
+            let targetStart = activeSession?.start ?? prediction?.recommendedStart ?? .now
+            let est = NapLengthEstimator.estimate(
+                naps: history, targetStart: targetStart, now: .now,
+                profile: WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+            )
+            if estimatedNap != est { estimatedNap = est }
         }
 
         writeSnapshotIfChanged()

@@ -21,6 +21,16 @@ final class SkippedNapDetectorTests: XCTestCase {
         XCTAssertGreaterThan(inf!.likelyEnd, inf!.likelyStart)
     }
 
+    func testInferenceIsStableAsClockAdvances() {
+        // Same last wake, two different "now"s 5 min apart → identical inferred slot. (Drift here is
+        // what flickered the home screen between "next nap in 0m" and "overdue by 0 min".)
+        let lastWake = Date.now.addingTimeInterval(-8 * 3600)
+        let a = SkippedNapDetector.detect(lastWake: lastWake, now: .now, profile: profile, adaptationFactor: 1.0)
+        let b = SkippedNapDetector.detect(lastWake: lastWake, now: Date.now.addingTimeInterval(300), profile: profile, adaptationFactor: 1.0)
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a, b, "Inferred nap must not move with the clock.")
+    }
+
     func testNoInferenceForAgesThatDontNap() {
         // 5+ years: napsPerDay upper bound 0.
         let old = WakeWindowTable.profile(forAgeDays: 365 * 5)

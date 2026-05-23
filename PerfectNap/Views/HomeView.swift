@@ -258,8 +258,8 @@ struct HomeView: View {
                         .background(.ultraThinMaterial, in: Capsule())
                 }
                 .opacity(0.85)
-                if session.kind == .nap, let est = store.estimatedNapMinutes {
-                    Text("Usually naps ~\(durationText(est))")
+                if session.kind == .nap, let est = store.estimatedNap {
+                    Text("Usually naps ~\(durationText(est.minutes)) · \(est.confidencePercent)% confident")
                         .font(.footnote).opacity(0.6)
                 }
             }
@@ -301,9 +301,12 @@ struct HomeView: View {
                     Text("Last woke at \(CountdownFormatter.clock(lastEnded))")
                         .font(.footnote).opacity(0.6)
                 }
-                if let est = store.estimatedNapMinutes {
-                    Text("This nap usually lasts ~\(durationText(est))")
+                if let est = store.estimatedNap {
+                    Text("This nap usually lasts ~\(durationText(est.minutes)) · \(est.confidencePercent)% confident")
                         .font(.footnote).opacity(0.6)
+                } else {
+                    Text("Learning nap lengths — needs about a day of logs")
+                        .font(.caption).opacity(0.45)
                 }
                 Button { showRationale = true; Haptics.tap() } label: {
                     Label("Why this time?", systemImage: "info.circle")
