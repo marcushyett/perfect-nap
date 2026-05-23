@@ -20,6 +20,10 @@ final class SleepStore {
     private(set) var estimatedNap: NapLengthEstimate?
     /// During an active nap: suggested time to wake to protect bedtime / day-sleep balance.
     private(set) var wakeSuggestion: WakeSuggestion?
+    /// Gauge bases (completed): current day's nap minutes, most-recent night minutes. The view adds
+    /// the live elapsed for an in-progress nap/night.
+    private(set) var dayNapBaseMinutes: Double = 0
+    private(set) var nightSleepBaseMinutes: Double = 0
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -239,6 +243,14 @@ final class SleepStore {
         let dayStart = Calendar.current.startOfDay(for: .now)
         napsToday = completed.filter { $0.start >= dayStart }
         lastNightTotalSeconds = computeLastNightTotal(completed: completed)
+
+        let sessions = completed.compactMap { s -> SleepTotals.Session? in
+            guard let end = s.endedAt else { return nil }
+            return SleepTotals.Session(start: s.start, end: end, kind: s.kind)
+        }
+        let bases = SleepTotals.bases(sessions)
+        if dayNapBaseMinutes != bases.day { dayNapBaseMinutes = bases.day }
+        if nightSleepBaseMinutes != bases.night { nightSleepBaseMinutes = bases.night }
 
         if let baby, activeSession == nil, !TrackingState.isPaused {
             let predictor = NapPredictor(baby: baby)

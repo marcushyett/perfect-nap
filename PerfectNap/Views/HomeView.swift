@@ -323,7 +323,7 @@ struct HomeView: View {
 
                 Text(predictionContextLine(prediction, overdue: overdue))
                     .font(.footnote).opacity(0.7).multilineTextAlignment(.center)
-                if let est = store.estimatedNap {
+                if let est = store.estimatedNap, est.confidence >= 0.4 {
                     Text("Usually naps ~\(durationText(est.minutes)) · \(est.confidencePercent)% confident")
                         .font(.footnote).opacity(0.55)
                 }
@@ -353,57 +353,55 @@ struct HomeView: View {
         VStack(spacing: 12) {
             ZStack {
                 if let g {
-                    SleepGaugeRing(fraction: g.nightFraction, color: g.nightColor, diameter: 296, lineWidth: 11)
-                    SleepGaugeRing(fraction: g.dayFraction, color: g.dayColor, diameter: 264, lineWidth: 11)
+                    SleepGaugeRing(fraction: g.nightFraction, color: Self.nightColor, icon: "moon.fill", diameter: 296, lineWidth: 11)
+                    SleepGaugeRing(fraction: g.dayFraction, color: Self.dayColor, icon: "sun.max.fill", diameter: 264, lineWidth: 11)
                 }
                 primaryButton
             }
             if let g {
-                HStack(spacing: 18) {
-                    legendDot(g.dayColor, "Day \(durationText(g.dayMinutes)) · \(g.napCount) nap\(g.napCount == 1 ? "" : "s")")
-                    legendDot(g.nightColor, "Night \(durationText(g.nightMinutes))")
+                HStack(spacing: 20) {
+                    legendItem("sun.max.fill", Self.dayColor, durationText(g.dayMinutes), over: g.dayOver)
+                    legendItem("moon.fill", Self.nightColor, durationText(g.nightMinutes), over: g.nightOver)
                 }
-                .font(.caption).opacity(0.85)
+                .font(.subheadline.weight(.medium))
             }
         }
     }
 
-    private func legendDot(_ color: Color, _ label: String) -> some View {
+    private static let dayColor = Color(red: 0.95, green: 0.62, blue: 0.20)   // warm sun amber
+    private static let nightColor = Color(red: 0.36, green: 0.36, blue: 0.70) // moonlit indigo
+
+    private func legendItem(_ icon: String, _ color: Color, _ value: String, over: Bool) -> some View {
         HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(label)
+            Image(systemName: icon).foregroundStyle(color)
+            Text(value).foregroundStyle(over ? .red : .primary)
+            if over { Image(systemName: "exclamationmark.circle.fill").font(.caption).foregroundStyle(.red) }
         }
     }
 
     private struct GaugeValues {
         let dayFraction: Double, nightFraction: Double
-        let dayColor: Color, nightColor: Color
-        let dayMinutes: Int, nightMinutes: Int, napCount: Int
+        let dayMinutes: Int, nightMinutes: Int
+        let dayOver: Bool, nightOver: Bool
     }
 
     private func gaugeValues(now: Date) -> GaugeValues? {
         guard let baby = store.baby else { return nil }
         let p = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
-        let todaysNaps = store.napsToday.filter { $0.kind == .nap }
-        var dayMin = todaysNaps.reduce(0.0) { $0 + Double($1.durationMinutes) }
-        if let a = store.activeSession, a.kind == .nap { dayMin += max(0, now.timeIntervalSince(a.start) / 60) }
-        let nightMin = store.lastNightTotalSeconds / 60
-        let dayUpper = p.totalDaySleepHours.upperBound * 60, dayLower = p.totalDaySleepHours.lowerBound * 60
-        let nightUpper = p.totalNightSleepHours.upperBound * 60, nightLower = p.totalNightSleepHours.lowerBound * 60
+        var dayMin = store.dayNapBaseMinutes
+        var nightMin = store.nightSleepBaseMinutes
+        if let a = store.activeSession {
+            let elapsed = max(0, now.timeIntervalSince(a.start) / 60)
+            if a.kind == .nap { dayMin += elapsed } else if a.kind == .night { nightMin = elapsed }
+        }
+        let dayUpper = p.totalDaySleepHours.upperBound * 60
+        let nightUpper = p.totalNightSleepHours.upperBound * 60
         return GaugeValues(
             dayFraction: dayUpper > 0 ? dayMin / dayUpper : 0,
             nightFraction: nightUpper > 0 ? nightMin / nightUpper : 0,
-            dayColor: sleepColor(dayMin, dayLower, dayUpper),
-            nightColor: sleepColor(nightMin, nightLower, nightUpper),
             dayMinutes: Int(dayMin.rounded()), nightMinutes: Int(nightMin.rounded()),
-            napCount: todaysNaps.count + ((store.activeSession?.kind == .nap) ? 1 : 0)
+            dayOver: dayMin > dayUpper, nightOver: nightMin > nightUpper
         )
-    }
-
-    private func sleepColor(_ actual: Double, _ lower: Double, _ upper: Double) -> Color {
-        if actual > upper { return .orange }
-        if actual >= lower { return .green }
-        return Color.blue.opacity(0.55)
     }
 
     @ViewBuilder
@@ -460,17 +458,29 @@ struct RationaleSheet: View {
 private struct SleepGaugeRing: View {
     let fraction: Double
     let color: Color
+    let icon: String
     let diameter: CGFloat
     let lineWidth: CGFloat
 
     var body: some View {
+        let f = min(max(fraction, 0), 1)
         ZStack {
-            Circle().stroke(color.opacity(0.18), lineWidth: lineWidth)
+            Circle().stroke(color.opacity(0.16), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: min(max(fraction, 0), 1))
+                .trim(from: 0, to: f)
                 .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(.easeInOut(duration: 0.4), value: fraction)
+                .animation(.easeInOut(duration: 0.4), value: f)
+            // Sun/moon badge riding the end of the arc.
+            ZStack {
+                Circle().fill(color).frame(width: lineWidth + 11, height: lineWidth + 11)
+                Image(systemName: icon)
+                    .font(.system(size: lineWidth - 1, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .offset(y: -diameter / 2)
+            .rotationEffect(.degrees(f * 360))
+            .animation(.easeInOut(duration: 0.4), value: f)
         }
         .frame(width: diameter, height: diameter)
     }
