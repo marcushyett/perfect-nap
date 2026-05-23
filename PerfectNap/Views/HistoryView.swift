@@ -71,7 +71,7 @@ struct HistoryView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    TodayTimelineChart(sessions: todayAndOvernight)
+                    TodayTimelineChart(sessions: todayAndOvernight, forecast: store.dayForecast)
                     if let baby = store.baby {
                         WeeklyDaySleepChart(sessions: weekSessions, baby: baby)
                         WeeklyWakeWindowChart(sessions: weekSessions, baby: baby)

@@ -19,11 +19,13 @@ struct DayTotal: Identifiable {
 /// Horizontal timeline of today's sleep across 24 hours. Each block is a nap or night segment.
 struct TodayTimelineChart: View {
     let sessions: [NapSession]
+    let forecast: [ForecastNap]
     private let dayStart: Date
     private let dayEnd: Date
 
-    init(sessions: [NapSession], now: Date = .now) {
+    init(sessions: [NapSession], forecast: [ForecastNap] = [], now: Date = .now) {
         self.sessions = sessions
+        self.forecast = forecast
         let cal = Calendar.current
         self.dayStart = cal.startOfDay(for: now)
         self.dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? now
@@ -47,6 +49,23 @@ struct TodayTimelineChart: View {
                 Text(totalLabel).font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
             Chart {
+                // Forecast for the rest of today: faded blocks with a widening error envelope.
+                ForEach(forecast) { f in
+                    BarMark(
+                        xStart: .value("from", max(f.start.addingTimeInterval(-f.startUncertaintyMinutes * 60), dayStart)),
+                        xEnd: .value("to", min(f.end.addingTimeInterval(f.startUncertaintyMinutes * 60), dayEnd)),
+                        y: .value("Today", "")
+                    )
+                    .foregroundStyle(.orange.opacity(0.12))
+                    .cornerRadius(4)
+                    BarMark(
+                        xStart: .value("Start", f.start),
+                        xEnd: .value("End", f.end),
+                        y: .value("Today", "")
+                    )
+                    .foregroundStyle(.orange.opacity(0.35))
+                    .cornerRadius(4)
+                }
                 ForEach(blocks) { block in
                     BarMark(
                         xStart: .value("Start", block.start),
@@ -66,6 +85,10 @@ struct TodayTimelineChart: View {
             }
             .chartYAxis(.hidden)
             .frame(height: 56)
+            if !forecast.isEmpty {
+                Text("Faded blocks forecast the rest of today — wider = less certain.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
     }
 

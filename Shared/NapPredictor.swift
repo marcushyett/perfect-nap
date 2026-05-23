@@ -119,8 +119,9 @@ struct NapPredictor {
             lastNightTotalSeconds: lastNightTotalSeconds
         )
         let adaptation = clampedAdaptation(baby.adaptationFactor)
+        let dayLoad = dayLoadFactor(napsToday: napsToday, profile: profile)
 
-        let combined = positionFactor * napQualityFactor * nightFactor * adaptation
+        let combined = positionFactor * napQualityFactor * nightFactor * adaptation * dayLoad
 
         let adjustedMinutes = Double(baselineMinutes) * combined
         let recommended = anchorEnd.addingTimeInterval(adjustedMinutes * 60)
@@ -139,7 +140,8 @@ struct NapPredictor {
             baseline: baselineMinutes,
             adjusted: Int(adjustedMinutes.rounded()),
             lastNightTotalSeconds: lastNightTotalSeconds,
-            isSynthetic: isSynthetic
+            isSynthetic: isSynthetic,
+            dayLoad: dayLoad
         )
 
         var finalRecommended = recommended
@@ -224,13 +226,28 @@ struct NapPredictor {
     ///  - nap 30–45 min: subtract ~20–30 min (≈ 0.85×)
     ///  - nap 45–90 min: use age midpoint (1.00×)
     ///  - nap > 90 min: add ~15–30 min (≈ 1.10×)
+    /// How the last nap's length shifts the next wake window. Sleep pressure (Process S) discharges
+    /// in proportion to how much was slept: a short nap leaves more pressure → the next window
+    /// shrinks; a long nap discharges more → it stretches. Graduated and age-relative (compared to
+    /// the age-typical nap length), not a fixed absolute threshold.
     private func napQualityAdjustment(lastSleep: NapSession, profile: AgeProfile) -> Double {
         guard lastSleep.kind == .nap else { return 1.0 }
-        let minutes = Double(lastSleep.durationMinutes)
-        if minutes < 30 { return 0.75 }
-        if minutes < 45 { return 0.85 }
-        if minutes > 90 { return 1.10 }
-        return 1.0
+        let typical = BedtimePlanner.typicalNapMinutes(profile)
+        guard typical > 0 else { return 1.0 }
+        let ratio = Double(lastSleep.durationMinutes) / typical
+        return min(max(1.0 + 0.3 * (ratio - 1.0), 0.75), 1.2)
+    }
+
+    /// Stretches the window as the day's nap total fills the age day-sleep budget — once most of the
+    /// needed day sleep is banked, sleep pressure rebuilds slower and the day should wind toward
+    /// bedtime rather than over-napping (complements BedtimePlanner / NapCapPlanner).
+    private func dayLoadFactor(napsToday: [NapSession], profile: AgeProfile) -> Double {
+        let dayMinutes = napsToday.filter { $0.kind == .nap }.reduce(0.0) { $0 + Double($1.durationMinutes) }
+        let budget = profile.totalDaySleepHours.upperBound * 60
+        guard budget > 0 else { return 1.0 }
+        let ratio = dayMinutes / budget
+        guard ratio > 0.6 else { return 1.0 }
+        return min(1.15, 1.0 + (ratio - 0.6) * 0.3)
     }
 
     private func clampedAdaptation(_ factor: Double) -> Double {
@@ -252,7 +269,8 @@ struct NapPredictor {
         baseline: Int,
         adjusted: Int,
         lastNightTotalSeconds: TimeInterval?,
-        isSynthetic: Bool = false
+        isSynthetic: Bool = false,
+        dayLoad: Double = 1.0
     ) -> String {
         var parts: [String] = []
         if isSynthetic {
@@ -267,6 +285,9 @@ struct NapPredictor {
             parts.append("Last nap was short → next window shortened (×\(String(format: "%.2f", napQualityFactor))).")
         } else if napQualityFactor > 1.0 {
             parts.append("Last nap was long → next window stretched (×\(String(format: "%.2f", napQualityFactor))).")
+        }
+        if dayLoad > 1.01 {
+            parts.append("Lots of day sleep banked already → window stretched toward bedtime (×\(String(format: "%.2f", dayLoad))).")
         }
         if abs(nightFactor - 1.0) > 0.01, let seconds = lastNightTotalSeconds {
             let hours = seconds / 3600.0

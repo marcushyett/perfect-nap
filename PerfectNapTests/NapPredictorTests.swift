@@ -62,6 +62,34 @@ final class NapPredictorTests: XCTestCase {
         XCTAssertEqual(p.status(at: now), .overtired)
     }
 
+    func testLongNapLengthensNextWindow() {
+        let ctx = makeContext()
+        let now = Date.now
+        let endedAt = now.addingTimeInterval(-5 * 60)
+        let mediumNap = NapSession.create(in: ctx, startedAt: endedAt.addingTimeInterval(-75 * 60), endedAt: endedAt, kind: .nap)
+        let longNap = NapSession.create(in: ctx, startedAt: endedAt.addingTimeInterval(-150 * 60), endedAt: endedAt, kind: .nap)
+        let p = NapPredictor(baby: baby(ctx, monthsOld: 9), now: now)
+        let mediumW = p.predict(lastSleep: mediumNap, napsToday: [])!.usedWindowMinutes
+        let longW = p.predict(lastSleep: longNap, napsToday: [])!.usedWindowMinutes
+        XCTAssertGreaterThan(longW, mediumW, "A long nap discharges more sleep pressure → longer next window.")
+    }
+
+    func testHighDaySleepStretchesWindow() {
+        let ctx = makeContext()
+        let now = Date.now
+        let endedAt = now.addingTimeInterval(-5 * 60)
+        let last = NapSession.create(in: ctx, startedAt: endedAt.addingTimeInterval(-60 * 60), endedAt: endedAt, kind: .nap)
+        // Several naps already today → day-sleep budget largely used.
+        let manyNaps = (1...5).map { i -> NapSession in
+            let end = now.addingTimeInterval(Double(-i) * 2 * 3600)
+            return NapSession.create(in: ctx, startedAt: end.addingTimeInterval(-60 * 60), endedAt: end, kind: .nap)
+        }
+        let p = NapPredictor(baby: baby(ctx, monthsOld: 9), now: now)
+        let lowLoad = p.predict(lastSleep: last, napsToday: [last])!.usedWindowMinutes
+        let highLoad = p.predict(lastSleep: last, napsToday: manyNaps)!.usedWindowMinutes
+        XCTAssertGreaterThan(highLoad, lowLoad, "More day sleep banked → window stretched toward bedtime.")
+    }
+
     func testShortNapShortensNextWindow() {
         let ctx = makeContext()
         let now = Date.now

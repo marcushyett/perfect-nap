@@ -24,6 +24,8 @@ final class SleepStore {
     /// the live elapsed for an in-progress nap/night.
     private(set) var dayNapBaseMinutes: Double = 0
     private(set) var nightSleepBaseMinutes: Double = 0
+    /// Projected remaining naps for the rest of today (for the timeline chart).
+    private(set) var dayForecast: [ForecastNap] = []
 
     private let context: NSManagedObjectContext
     nonisolated(unsafe) private var refreshTask: Task<Void, Never>?
@@ -223,7 +225,7 @@ final class SleepStore {
 
         guard let babyID = baby?.id else {
             activeSession = nil; lastCompletedSleep = nil; napsToday = []
-            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil
+            prediction = nil; skippedNapInference = nil; lastNightTotalSeconds = 0; estimatedNap = nil; wakeSuggestion = nil; dayForecast = []
             writeSnapshotIfChanged()
             NapLiveActivityManager.shared.reconcile(babies: [], napping: [], selectedAwake: nil, selectedBabyName: "Baby")
             return
@@ -291,6 +293,9 @@ final class SleepStore {
             wakeSuggestion = nil
         }
 
+        let forecast = computeForecast()
+        if dayForecast != forecast { dayForecast = forecast }
+
         writeSnapshotIfChanged()
         reconcileLiveActivities()
     }
@@ -332,6 +337,36 @@ final class SleepStore {
             napping: napping,
             selectedAwake: selectedAwake.map { (baby?.id ?? UUID(), baby?.displayName ?? "Baby", $0.nextNapAt, $0.lastEndedAt, $0.latestNapAt) },
             selectedBabyName: baby?.displayName ?? "Baby"
+        )
+    }
+
+    /// Chains the wake-window → nap pattern forward from the next predicted nap to bedtime.
+    private func computeForecast() -> [ForecastNap] {
+        guard let baby else { return [] }
+        let profile = WakeWindowTable.profile(forAgeDays: baby.ageInDays)
+        let adapt = min(max(baby.adaptationFactor, 0.75), 1.25)
+        let napDur = Double(estimatedNap?.minutes ?? Int(BedtimePlanner.typicalNapMinutes(profile)))
+        let wakeWW = prediction.map { Double($0.usedWindowMinutes) } ?? (Double(profile.window.typicalMinutes) * adapt)
+        let typicalNaps = max(1, (profile.napsPerDay.lowerBound + profile.napsPerDay.upperBound) / 2)
+        let completedNaps = napsToday.filter { $0.kind == .nap }.count
+        let now = Date.now
+        let bedtime = baby.targetBedtime(on: now)
+
+        let firstStart: Date
+        let remaining: Int
+        if let active = activeSession, active.kind == .nap {
+            let currentEnd = max(active.start.addingTimeInterval(napDur * 60), now)
+            firstStart = currentEnd.addingTimeInterval(wakeWW * 60)
+            remaining = max(0, typicalNaps - completedNaps - 1)
+        } else if let prediction {
+            firstStart = max(prediction.recommendedStart, now)
+            remaining = max(0, typicalNaps - completedNaps)
+        } else {
+            return []
+        }
+        return DayForecast.naps(
+            firstNapStart: firstStart, napDurationMinutes: napDur, wakeWindowMinutes: wakeWW,
+            bedtime: bedtime, maxNaps: remaining
         )
     }
 
