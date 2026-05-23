@@ -18,6 +18,8 @@ DEFINE SCHEMA
         CD_weeksPremature       INT64,
         CD_customScheduleMinutes STRING,
         CD_ownerHasPremium      INT64,
+        CD_moveReceipt          BYTES QUERYABLE SORTABLE,
+        CD_moveReceipt_ckAsset  ASSET,
         GRANT WRITE TO "_creator",
         GRANT READ TO "_creator"
     );
@@ -36,6 +38,8 @@ DEFINE SCHEMA
         CD_kindRaw    STRING,
         CD_note       STRING,
         CD_startedAt  TIMESTAMP,
+        CD_moveReceipt          BYTES QUERYABLE SORTABLE,
+        CD_moveReceipt_ckAsset  ASSET,
         GRANT WRITE TO "_creator",
         GRANT READ TO "_creator"
     );
@@ -57,6 +61,8 @@ DEFINE SCHEMA
         CD_originTZ       STRING,
         CD_returnDate     TIMESTAMP,
         CD_strategyRaw    STRING,
+        CD_moveReceipt          BYTES QUERYABLE SORTABLE,
+        CD_moveReceipt_ckAsset  ASSET,
         GRANT WRITE TO "_creator",
         GRANT READ TO "_creator"
     );
