@@ -19,6 +19,9 @@ final class Baby: NSManagedObject, BabyProfileProviding {
     /// Set by the owner to mirror their Premium status. Travels through the CloudKit share so a
     /// partner viewing this baby inherits Premium — one subscription per family. Default false.
     @NSManaged var ownerHasPremium: Bool
+    /// This baby's sleep sessions (inverse of NapSession.baby). The relationship — not the babyID
+    /// string — is what lets CloudKit include the naps when the baby is shared with a partner.
+    @NSManaged var sessions: NSSet?
 
     @discardableResult
     static func create(
@@ -98,6 +101,10 @@ final class NapSession: NSManagedObject {
     @NSManaged var note: String?
     /// The baby this sleep belongs to (matches Baby.id). Enables multiple babies per account.
     @NSManaged var babyID: UUID?
+    /// Core Data relationship to the owning baby (inverse of Baby.sessions). Distinct from `babyID`:
+    /// this is what CloudKit traverses to include the nap when the baby is shared. Kept in sync with
+    /// `babyID` on create + by a launch-time backfill for naps that predate the relationship.
+    @NSManaged var baby: Baby?
 
     @discardableResult
     static func create(
@@ -106,7 +113,8 @@ final class NapSession: NSManagedObject {
         endedAt: Date? = nil,
         kind: SleepKind = .nap,
         note: String = "",
-        babyID: UUID? = nil
+        babyID: UUID? = nil,
+        baby: Baby? = nil
     ) -> NapSession {
         let s = NapSession(context: context)
         s.id = UUID()
@@ -114,7 +122,8 @@ final class NapSession: NSManagedObject {
         s.endedAt = endedAt
         s.kindRaw = kind.rawValue
         s.note = note
-        s.babyID = babyID
+        s.babyID = babyID ?? baby?.id
+        s.baby = baby
         return s
     }
 

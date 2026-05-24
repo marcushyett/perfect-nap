@@ -150,6 +150,25 @@ enum DefaultSettings {
             try? context.save()
         }
     }
+
+    /// Backfill the Baby⇄NapSession relationship for naps that only carry a `babyID` (everything that
+    /// predates the relationship, plus any nap created by the App Intent which sets babyID first).
+    /// The relationship — not the babyID string — is what lets CloudKit include a baby's naps when it's
+    /// shared. Runs every launch but is cheap (only touches naps whose relationship is still nil) and is
+    /// purely additive: it sets the link, never deletes a nap. No data loss.
+    @MainActor
+    static func linkNapsToBabiesIfNeeded(in context: NSManagedObjectContext) {
+        let napReq = NapSession.fetchRequest()
+        napReq.predicate = NSPredicate(format: "baby == nil AND babyID != nil")
+        guard let unlinked = try? context.fetch(napReq), !unlinked.isEmpty else { return }
+        var byID: [UUID: Baby] = [:]
+        for b in (try? context.fetch(Baby.fetchRequest())) ?? [] { if let id = b.id { byID[id] = b } }
+        var changed = false
+        for nap in unlinked where nap.baby == nil {
+            if let id = nap.babyID, let b = byID[id] { nap.baby = b; changed = true }
+        }
+        if changed { try? context.save() }
+    }
 }
 
 extension Baby {

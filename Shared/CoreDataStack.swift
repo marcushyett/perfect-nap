@@ -183,6 +183,33 @@ final class CoreDataStack {
             attr("babyID", .UUIDAttributeType),
         ]
 
+        // Baby ⇄ NapSession relationship. REQUIRED for CloudKit sharing: container.share([baby])
+        // only carries across records reachable from the baby via relationships, so without this a
+        // partner who accepts a share gets the baby but none of its naps. Optional + has an inverse
+        // (both CloudKit requirements). Delete rule is nullify so a deletion never cascades into lost
+        // naps — removeBaby still deletes a baby's naps explicitly. `babyID` is kept for every existing
+        // fetch; this relationship is purely additive and powers sharing.
+        let sessionsRel = NSRelationshipDescription()
+        sessionsRel.name = "sessions"
+        sessionsRel.destinationEntity = nap
+        sessionsRel.minCount = 0
+        sessionsRel.maxCount = 0          // 0 = to-many
+        sessionsRel.isOptional = true
+        sessionsRel.deleteRule = .nullifyDeleteRule
+
+        let babyRel = NSRelationshipDescription()
+        babyRel.name = "baby"
+        babyRel.destinationEntity = baby
+        babyRel.minCount = 0
+        babyRel.maxCount = 1              // to-one
+        babyRel.isOptional = true
+        babyRel.deleteRule = .nullifyDeleteRule
+
+        sessionsRel.inverseRelationship = babyRel
+        babyRel.inverseRelationship = sessionsRel
+        baby.properties.append(sessionsRel)
+        nap.properties.append(babyRel)
+
         // Travel / jet-lag trip. Additive + all-optional (no migration or data loss for existing
         // users; absence of a Trip simply means "not travelling").
         let trip = NSEntityDescription()

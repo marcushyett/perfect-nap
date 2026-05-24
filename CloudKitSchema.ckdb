@@ -31,6 +31,7 @@ DEFINE SCHEMA
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
+        CD_baby       STRING QUERYABLE SEARCHABLE SORTABLE,
         CD_babyID     STRING QUERYABLE,
         CD_endedAt    TIMESTAMP,
         CD_entityName STRING QUERYABLE,

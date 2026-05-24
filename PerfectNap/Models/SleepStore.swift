@@ -188,7 +188,7 @@ final class SleepStore {
         guard let babyID = baby?.id, activeSession == nil else { return }
         TrackingState.isPaused = false
         let kind = NapSession.classify(start: date, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0))
-        NapSession.create(in: context, startedAt: date, kind: kind, babyID: babyID)
+        NapSession.create(in: context, startedAt: date, kind: kind, babyID: babyID, baby: baby)
         try? context.save()
         refresh()
     }
@@ -245,7 +245,7 @@ final class SleepStore {
 
     func addNap(start: Date, end: Date, kind: SleepKind? = nil) {
         guard end > start, let babyID = baby?.id else { return }
-        NapSession.create(in: context, startedAt: start, endedAt: end, kind: kind ?? NapSession.classify(start: start, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0)), babyID: babyID)
+        NapSession.create(in: context, startedAt: start, endedAt: end, kind: kind ?? NapSession.classify(start: start, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0)), babyID: babyID, baby: baby)
         try? context.save()
         refresh()
     }
@@ -260,7 +260,7 @@ final class SleepStore {
         req.predicate = NSPredicate(format: "babyID == %@ AND kindRaw == %@ AND endedAt >= %@",
                                     babyID as NSUUID, SleepKind.night.rawValue, earliest as NSDate)
         for fragment in (try? context.fetch(req)) ?? [] { context.delete(fragment) }
-        NapSession.create(in: context, startedAt: start, endedAt: end, kind: .night, babyID: babyID)
+        NapSession.create(in: context, startedAt: start, endedAt: end, kind: .night, babyID: babyID, baby: baby)
         try? context.save()
         refresh()
     }
@@ -274,7 +274,8 @@ final class SleepStore {
             endedAt: plan.second.1,
             kind: NapSession.classify(start: plan.second.0),
             note: session.note ?? "",
-            babyID: session.babyID
+            babyID: session.babyID,
+            baby: session.baby
         )
         session.endedAt = plan.first.1
         session.kind = NapSession.classify(start: plan.first.0)

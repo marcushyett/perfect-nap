@@ -62,6 +62,27 @@ final class SleepStoreMultiBabyTests: XCTestCase {
         XCTAssertTrue(store.napsToday.allSatisfy { $0.babyID == bID })
     }
 
+    func testNapsLinkToBabyRelationshipAndBackfill() {
+        // The Baby⇄NapSession relationship (not babyID) is what lets CloudKit include a baby's naps
+        // when it's shared. A nap created with the baby is linked immediately; a legacy babyID-only nap
+        // is backfilled by the launch migration — additively, with no data loss.
+        let a = makeBaby("Rosie", ageMonths: 9); let aID = a.id!
+        try? container.viewContext.save()
+
+        let linked = NapSession.create(in: container.viewContext, startedAt: .now, endedAt: .now, kind: .nap, baby: a)
+        XCTAssertEqual(linked.baby?.id, aID, "Creating a nap with a baby sets the relationship.")
+        XCTAssertEqual(linked.babyID, aID, "babyID stays populated for existing queries.")
+        XCTAssertTrue((a.sessions as? Set<NapSession>)?.contains(linked) ?? false, "Inverse populated on the baby.")
+
+        let legacy = NapSession.create(in: container.viewContext, startedAt: .now, endedAt: .now, kind: .nap, babyID: aID)
+        XCTAssertNil(legacy.baby, "A babyID-only nap starts with no relationship (simulates pre-migration data).")
+        try? container.viewContext.save()
+
+        DefaultSettings.linkNapsToBabiesIfNeeded(in: container.viewContext)
+        XCTAssertEqual(legacy.baby?.id, aID, "Backfill links a babyID-only nap to its baby.")
+        XCTAssertEqual(legacy.babyID, aID, "Backfill never clears babyID — no data loss.")
+    }
+
     func testActiveNapDoesNotLeakAcrossBabies() {
         let a = makeBaby("Rosie", ageMonths: 9); let aID = a.id!
         let b = makeBaby("Theo", ageMonths: 9)

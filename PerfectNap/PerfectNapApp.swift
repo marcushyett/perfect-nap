@@ -12,6 +12,7 @@ struct PerfectNapApp: App {
         LegacyMigration.runIfNeeded(into: ctx)
         DefaultSettings.applyDefaultBedtimeIfNeeded(in: ctx)
         DefaultSettings.assignOrphanNapsIfNeeded(in: ctx)
+        DefaultSettings.linkNapsToBabiesIfNeeded(in: ctx)
         #if DEBUG
         DebugSeed.seedIfRequested(into: ctx)
         #endif
