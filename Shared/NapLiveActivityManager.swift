@@ -75,7 +75,7 @@ final class NapLiveActivityManager {
         for (key, state) in remaining {
             let attributes = NapActivityAttributes(babyName: state.babyName, babyID: key)
             do {
-                _ = try Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: staleDate()), pushType: nil)
+                _ = try Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: staleDate()), pushType: .token)
                 Self.recordStatus("Started activity for \(state.babyName).")
             } catch {
                 Self.recordStatus("Activity.request failed: \(error.localizedDescription)")
@@ -106,7 +106,7 @@ final class NapLiveActivityManager {
                 if existing.content.state != state { await existing.update(ActivityContent(state: state, staleDate: staleDate())) }
             } else {
                 let attributes = NapActivityAttributes(babyName: babyName, babyID: babyID)
-                _ = try? Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: staleDate()), pushType: nil)
+                _ = try? Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: staleDate()), pushType: .token)
             }
         }
     }

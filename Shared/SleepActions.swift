@@ -30,6 +30,8 @@ enum SleepActions {
 
         let name = baby?.displayName ?? "Baby"
         NapLiveActivityManager.shared.sync(babyID: babyID.uuidString, to: .napping(start: date, kind: kind), babyName: name)
+        let cs = NapActivityAttributes.ContentState(phase: .napping, sessionStart: date, nextNapAt: nil, babyName: name, sleepKind: kind.rawValue)
+        await RelayClient.napEvent(babyKey: babyID.uuidString, contentState: cs.relayDictionary, babyName: name)
         NotificationCenter.default.post(name: .perfectNapStateChanged, object: nil)
         return session
     }
@@ -62,6 +64,8 @@ enum SleepActions {
             )
             if let prediction {
                 NapLiveActivityManager.shared.sync(babyID: babyID.uuidString, to: .awake(nextNapAt: prediction.recommendedStart, lastEndedAt: date, latestNapAt: prediction.latestStart), babyName: name)
+                let cs = NapActivityAttributes.ContentState(phase: .awake, sessionStart: nil, nextNapAt: prediction.recommendedStart, babyName: name, sleepKind: SleepKind.nap.rawValue, lastEndedAt: date, latestNapAt: prediction.latestStart)
+                await RelayClient.napEvent(babyKey: babyID.uuidString, contentState: cs.relayDictionary, babyName: name)
             } else {
                 NapLiveActivityManager.shared.sync(babyID: babyID.uuidString, to: .none, babyName: name)
             }

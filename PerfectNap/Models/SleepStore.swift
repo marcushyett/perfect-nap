@@ -191,6 +191,7 @@ final class SleepStore {
         NapSession.create(in: context, startedAt: date, kind: kind, babyID: babyID, baby: baby)
         try? context.save()
         refresh()
+        reportNapStateToRelay()
     }
 
     /// Ends any active nap for the selected baby and stops its tracking until a new nap is started.
@@ -202,6 +203,7 @@ final class SleepStore {
         TrackingState.isPaused = true
         NapNotifier.shared.cancelAll()
         refresh()
+        reportNapStateToRelay()
     }
 
     func stopNap(at date: Date = .now) {
@@ -219,6 +221,7 @@ final class SleepStore {
         }
         refresh()
         NapNotifier.shared.scheduleNextNap(prediction: prediction, babyName: baby?.displayName ?? "Baby")
+        reportNapStateToRelay()
     }
 
     func adjustActiveStart(to date: Date) {
@@ -227,6 +230,7 @@ final class SleepStore {
         session.kind = NapSession.classify(start: date, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0))
         try? context.save()
         refresh()
+        reportNapStateToRelay()
     }
 
     func updateSession(_ session: NapSession, start: Date, end: Date?, kind: SleepKind) {
@@ -235,12 +239,34 @@ final class SleepStore {
         session.kind = kind
         try? context.save()
         refresh()
+        reportNapStateToRelay()
     }
 
     func delete(_ session: NapSession) {
         context.delete(session)
         try? context.save()
         refresh()
+        reportNapStateToRelay()
+    }
+
+    /// Push the selected baby's current nap state to the partner's device(s) via the relay, so their
+    /// lock-screen Live Activity updates instantly even with their app closed. Called only from
+    /// explicit user actions — the receiving device updates its own activity after CloudKit sync, so
+    /// this never loops. No-op unless the relay secret is configured. Must run after `refresh()`.
+    private func reportNapStateToRelay() {
+        guard RelayClient.isConfigured, let baby, let babyID = baby.id?.uuidString else { return }
+        let name = baby.displayName
+        let state: NapActivityAttributes.ContentState
+        if let active = activeSession {
+            state = .init(phase: .napping, sessionStart: active.start, nextNapAt: nil, babyName: name, sleepKind: active.kind.rawValue)
+        } else if let prediction {
+            state = .init(phase: .awake, sessionStart: nil, nextNapAt: prediction.recommendedStart, babyName: name,
+                          sleepKind: SleepKind.nap.rawValue, lastEndedAt: lastCompletedSleep?.endedAt, latestNapAt: prediction.latestStart)
+        } else {
+            return
+        }
+        let dict = state.relayDictionary
+        Task { await RelayClient.napEvent(babyKey: babyID, contentState: dict, babyName: name) }
     }
 
     func addNap(start: Date, end: Date, kind: SleepKind? = nil) {
@@ -248,6 +274,7 @@ final class SleepStore {
         NapSession.create(in: context, startedAt: start, endedAt: end, kind: kind ?? NapSession.classify(start: start, bedtimeMinutes: Int(baby?.targetBedtimeMinutes ?? 0)), babyID: babyID, baby: baby)
         try? context.save()
         refresh()
+        reportNapStateToRelay()
     }
 
     /// Log last night from the "didn't record the night?" nudge. Clears any sliver of a night already
@@ -263,6 +290,7 @@ final class SleepStore {
         NapSession.create(in: context, startedAt: start, endedAt: end, kind: .night, babyID: babyID, baby: baby)
         try? context.save()
         refresh()
+        reportNapStateToRelay()
     }
 
     @discardableResult

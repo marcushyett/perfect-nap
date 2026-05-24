@@ -11,7 +11,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "35"
+    CURRENT_PROJECT_VERSION: "36"
     DEVELOPMENT_TEAM: "9DG37ADF64"
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -43,6 +43,7 @@ targets:
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         CKSharingSupported: true
+        RelaySharedSecret: $(RELAY_SHARED_SECRET)
         NSSupportsLiveActivities: YES
         NSSupportsLiveActivitiesFrequentUpdates: YES
         UIBackgroundModes:
@@ -63,6 +64,9 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: PerfectNap/PerfectNap.entitlements
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
+    configFiles:
+      Debug: PerfectNap/Secrets.xcconfig
+      Release: PerfectNap/Secrets.xcconfig
     dependencies:
       - target: PerfectNapWidget
         embed: true

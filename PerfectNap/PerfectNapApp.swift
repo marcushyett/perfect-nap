@@ -53,5 +53,7 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut, value: store.baby != nil)
+        .task { PushSyncManager.shared.start() }
+        .onChange(of: store.baby?.id) { _, _ in PushSyncManager.shared.refreshBabyRegistrations() }
     }
 }

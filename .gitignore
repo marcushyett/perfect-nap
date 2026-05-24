@@ -11,3 +11,4 @@ build/
 .playwright-mcp/
 apple-signin.png
 .claude/
+PerfectNap/Secrets.xcconfig
