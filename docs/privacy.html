@@ -10,71 +10,77 @@
 <main>
   <header>
     <h1>Privacy Policy</h1>
-    <p class="tagline">Perfect Nap collects nothing about you. This page explains, in plain English, what that means.</p>
+    <p class="tagline">Your baby's sleep data stays in your own iCloud. The only thing that reaches our server is a device notification token — never sleep data. This page explains it in plain English.</p>
   </header>
 
   <section>
     <h2>The short version</h2>
     <ul>
-      <li>Perfect Nap stores everything you enter <strong>only on your device</strong>.</li>
-      <li>The app makes <strong>no network requests</strong>. There is no server, no account, no login.</li>
-      <li>We do not use analytics, advertising SDKs, or third-party trackers of any kind.</li>
-      <li>If you delete the app, your data is deleted with it.</li>
+      <li>Your baby's sleep data lives on your device and syncs through <strong>your own iCloud account</strong> (Apple-encrypted). We can't read it.</li>
+      <li>iCloud sync lets you back up your data and <strong>share a baby with a partner</strong>, so you both see and log the same naps.</li>
+      <li>To update a partner's lock-screen timer the instant you start or stop a nap, the app sends a <strong>device notification token</strong> to our small relay server. <strong>No sleep, nap, or health data is sent to or stored on our server.</strong></li>
+      <li>No analytics, no advertising SDKs, no third-party trackers. No account, no email, no login.</li>
     </ul>
   </section>
 
   <section>
-    <h2>What the app stores on your device</h2>
-    <p>To do its job, Perfect Nap records the following on your device only:</p>
+    <h2>What the app stores (your device + your iCloud)</h2>
+    <p>To do its job, Perfect Nap records:</p>
     <ul>
       <li>Your baby's date of birth (entered during onboarding).</li>
       <li>The start time, end time, and type (nap or night) of each sleep you log.</li>
-      <li>A per-baby personalisation factor that is learned from completed naps.</li>
+      <li>A per-baby personalisation factor learned from completed naps, and optional settings (bedtime, a trip).</li>
     </ul>
     <p>
-      This data is held in Apple's local storage (SwiftData) and shared with the
-      Perfect Nap widget extension via an App Group container on the same
-      device. It never leaves the device.
+      This is held in Apple's Core Data and synced via <strong>iCloud (CloudKit)</strong> to your
+      private iCloud account — for backup and for sharing a baby with a partner. It is stored in
+      <em>your</em> iCloud, encrypted by Apple; we have no access to it and it is never sent to our
+      own servers. It's also shared with the Perfect Nap widget on the same device via an App Group.
+    </p>
+  </section>
+
+  <section>
+    <h2>Our notification relay — what it does and doesn't store</h2>
+    <p>
+      To make a partner's lock-screen Live Activity update instantly (even when their app is closed),
+      Apple requires a server to send the push. Ours is deliberately minimal. It stores only:
+    </p>
+    <ul>
+      <li>Apple <strong>push notification tokens</strong> for your device(s);</li>
+      <li>a random per-install identifier and the random identifier of the shared baby, used only to
+          route the push to the right device.</li>
+    </ul>
+    <p>
+      It does <strong>not</strong> store your baby's sleep history, names tied to your identity, your
+      email, your Apple ID, your location, or any analytics. Tokens auto-expire. These identifiers are
+      <strong>not linked to your identity and are never used to track you</strong>.
     </p>
   </section>
 
   <section>
     <h2>What the app does not collect</h2>
     <p>
-      Perfect Nap does not collect, transmit, or store any of the following:
-      your name, email address, contact list, location, device identifier,
-      advertising identifier, photos, microphone or camera data, or any usage
-      analytics.
-    </p>
-  </section>
-
-  <section>
-    <h2>Notifications and Live Activities</h2>
-    <p>
-      If you grant notification permission, Perfect Nap schedules local
-      notifications and Live Activities through Apple's standard system APIs.
-      These are generated locally on your device. No notification content is
-      sent through our servers (we don't operate any).
+      Perfect Nap does not collect your name, email address, contact list, location, advertising
+      identifier, photos, microphone or camera data, or any usage analytics. We do not sell or share
+      any data, and we do not use it for advertising.
     </p>
   </section>
 
   <section>
     <h2>Children's data</h2>
     <p>
-      Perfect Nap records a baby's date of birth and sleep times. Because this
-      information is only ever stored on the parent's device and is never
-      transmitted, no children's data is collected by us. The parent or guardian
-      controls all data on their device.
+      A baby's date of birth and sleep times are stored only in the parent's own iCloud account and on
+      their devices — never on our servers. Only device notification tokens reach our relay, and they
+      are not children's data and are not used for tracking. The parent or guardian controls all of it.
     </p>
   </section>
 
   <section>
-    <h2>If the app changes</h2>
+    <h2>Data we declare on the App Store</h2>
     <p>
-      If a future version of Perfect Nap ever adds a feature that requires
-      sending data off the device (for example, iCloud sync), this policy will
-      be updated before the feature ships, and the new behaviour will be
-      described explicitly in the App Store release notes.
+      In App Store privacy terms we collect <strong>Identifiers (a Device ID — the notification
+      token)</strong>, used only for <strong>App Functionality</strong> (delivering notifications),
+      <strong>not linked to your identity</strong>, and <strong>not used for tracking</strong>.
     </p>
   </section>
 
@@ -88,7 +94,7 @@
 
   <footer>
     <p><a href="index.html">← Back to support</a></p>
-    <p class="small">Last updated: 21 May 2026 · © Marcus Hyett</p>
+    <p class="small">Last updated: 24 May 2026 · © Marcus Hyett</p>
   </footer>
 </main>
 </body>

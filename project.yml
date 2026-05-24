@@ -34,6 +34,7 @@ targets:
       - path: Shared
     resources:
       - PerfectNap/Assets.xcassets
+      - PerfectNap/PrivacyInfo.xcprivacy
     info:
       path: PerfectNap/Info.plist
       properties:
