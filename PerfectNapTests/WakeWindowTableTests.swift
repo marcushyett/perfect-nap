@@ -77,4 +77,22 @@ final class WakeWindowTableTests: XCTestCase {
             XCTAssertTrue((0.5...1.5).contains(p.preBedtimeFactor), "\(p.label): preBedtimeFactor out of range.")
         }
     }
+
+    func testWakeWindowChangesSmoothlyEveryDay() {
+        // No band-boundary cliffs: the typical window changes by at most a couple of minutes per day
+        // across 0–2yr (it used to step ~20 min at each band edge). And it never decreases with age here.
+        var prev = WakeWindowTable.profile(forAgeDays: 0).window.typicalMinutes
+        for day in 1...730 {
+            let t = WakeWindowTable.profile(forAgeDays: day).window.typicalMinutes
+            XCTAssertLessThanOrEqual(abs(t - prev), 3, "Day \(day): \(abs(t - prev))-min jump — should be continuous.")
+            XCTAssertGreaterThanOrEqual(t, prev, "Day \(day): the window should not shrink with age in 0–2yr.")
+            prev = t
+        }
+    }
+
+    func testBandMidpointStillHitsPublishedValue() {
+        // Interpolation passes through each band's documented typical at the band's midpoint age.
+        XCTAssertEqual(WakeWindowTable.profile(forAgeDays: 75).window.typicalMinutes, 80, accuracy: 1)   // 2–3 mo
+        XCTAssertEqual(WakeWindowTable.profile(forAgeDays: 270).window.typicalMinutes, 180, accuracy: 1) // 8–10 mo
+    }
 }

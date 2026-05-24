@@ -232,9 +232,63 @@ enum WakeWindowTable {
         )
     ]
 
-    static func profile(forAgeDays days: Int) -> AgeProfile {
+    /// Each band's values represent its **midpoint** age; continuous interpolation anchors here.
+    private static let anchors: [(age: Double, profile: AgeProfile)] = {
+        var result: [(Double, AgeProfile)] = []
+        var lowerEdge = 0
+        for p in profiles {
+            result.append(((Double(lowerEdge) + Double(p.maxAgeDays)) / 2.0, p))
+            lowerEdge = p.maxAgeDays + 1
+        }
+        return result
+    }()
+
+    /// The raw band containing this age — categorical fields (naps/day, sleep totals, single-nap
+    /// stage, label, sleep-cycle length) that don't interpolate.
+    static func band(forAgeDays days: Int) -> AgeProfile {
         for profile in profiles where days <= profile.maxAgeDays { return profile }
         return profiles.last!
+    }
+
+    /// Age-interpolated profile: the wake window (low/typical/high) and the position factors change a
+    /// little **every day** — linearly between adjacent bands' midpoint values — instead of stepping at
+    /// band boundaries. Each band's published value is still hit exactly at its midpoint age; the days
+    /// in between are a smooth ramp. Categorical fields come from the containing band.
+    static func profile(forAgeDays days: Int) -> AgeProfile {
+        let containing = band(forAgeDays: days)
+        let d = Double(days)
+        let lo: (age: Double, profile: AgeProfile)
+        let hi: (age: Double, profile: AgeProfile)
+        if d <= anchors.first!.age {
+            lo = anchors.first!; hi = anchors.first!
+        } else if d >= anchors.last!.age {
+            lo = anchors.last!; hi = anchors.last!
+        } else {
+            var i = 0
+            while i < anchors.count - 1 && !(anchors[i].age <= d && d <= anchors[i + 1].age) { i += 1 }
+            lo = anchors[i]; hi = anchors[i + 1]
+        }
+        let t = hi.age > lo.age ? (d - lo.age) / (hi.age - lo.age) : 0
+        func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * t }
+        func lerpMin(_ a: Int, _ b: Int) -> Int { Int(lerp(Double(a), Double(b)).rounded()) }
+        let window = WakeWindow(
+            lowMinutes: lerpMin(lo.profile.window.lowMinutes, hi.profile.window.lowMinutes),
+            typicalMinutes: lerpMin(lo.profile.window.typicalMinutes, hi.profile.window.typicalMinutes),
+            highMinutes: lerpMin(lo.profile.window.highMinutes, hi.profile.window.highMinutes)
+        )
+        return AgeProfile(
+            label: containing.label,
+            maxAgeDays: containing.maxAgeDays,
+            napsPerDay: containing.napsPerDay,
+            totalDaySleepHours: containing.totalDaySleepHours,
+            totalNightSleepHours: containing.totalNightSleepHours,
+            window: window,
+            firstWindowFactor: lerp(lo.profile.firstWindowFactor, hi.profile.firstWindowFactor),
+            preBedtimeFactor: lerp(lo.profile.preBedtimeFactor, hi.profile.preBedtimeFactor),
+            isSingleNapStage: containing.isSingleNapStage,
+            notes: containing.notes,
+            citation: containing.citation
+        )
     }
 }
 
